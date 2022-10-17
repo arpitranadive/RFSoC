@@ -789,7 +789,7 @@ class RFSoC(VisaInstrument):
 
         ADC_I_pulses_array = [np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([])]
         ADC_Q_pulses_array = [np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([])]
-        ADC_pulses_pointer = [[[], [], []], [[], [], []], [[], [], []], [[], [], []], [[], [], []] , [[], [], []] , [[], [], []], [[], [], []]]
+        ADC_pulses_pointer = [[[], [], []], [[], [], []], [[], [], []], [[], [], []] , [[], [], []] , [[], [], []] , [[], [], []], [[], [], []]]
 
 
         if DAC:
