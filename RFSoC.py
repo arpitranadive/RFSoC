@@ -565,21 +565,20 @@ class RFSoC(VisaInstrument):
 
                         if k == 0:
                             rep_nb_wait = 1
-                            rep_tag = 1
                             color = '#{0:06X}'.format(wait_color)
                         else:
                             rep_nb_wait = rep_nb
-                            rep_tag = k
                             color = '#{0:06X}'.format(wait_color_rep)
 
                         pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
                                         Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-                                        rep_tag=rep_tag, rep_nb=rep_nb_wait, LUT=LUT, ch_demod=ch_demod),
+                                        rep_nb=rep_nb_wait, LUT=LUT, ch_demod=ch_demod),
                                         ignore_index=True)
 
                     else:
                         # if k > 2 it only updates the last event time
                         stop = start_vec[k]
+                        break
                     
 
                     wait_count +=1
@@ -596,7 +595,6 @@ class RFSoC(VisaInstrument):
                     ch_num = row['channel']
 
                     rep_nb_sig = rep_nb
-                    rep_tag = 1
 
                     if rep_nb>1:
                         color = '#{0:06X}'.format(ADC_color_rep)
@@ -614,13 +612,13 @@ class RFSoC(VisaInstrument):
 
                         pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
                                         Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,start_pointer=start_pointer,function=function,
-                                        rep_tag=rep_tag, rep_nb=rep_nb_sig, LUT=LUT, ch_demod=ch_demod),
+                                        rep_nb=rep_nb_sig, LUT=LUT, ch_demod=ch_demod),
                                         ignore_index=True)
 
                     else:
                         pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
                                         Channel=Channel, mode=mode, color=str(color), ch_num=ch_num,
-                                        rep_tag=rep_tag, rep_nb=rep_nb_sig),
+                                        rep_nb=rep_nb_sig),
                                         ignore_index=True)
 
 
@@ -682,7 +680,6 @@ class RFSoC(VisaInstrument):
                         LUT = False
 
                         # should not repeat the first waiting time before the loop
-                        rep_tag = 1
                         if k == 0:
                             rep_nb_wait = 1
                             color = '#{0:06X}'.format(wait_color)
@@ -692,11 +689,12 @@ class RFSoC(VisaInstrument):
 
                         pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
                                         Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-                                        rep_tag=rep_tag, rep_nb=rep_nb_wait, LUT=LUT),
+                                        rep_nb=rep_nb_wait, LUT=LUT),
                                         ignore_index=True)
 
                     else:
                         stop = start_vec[k]
+                        break
 
                     wait_count +=1
 
@@ -716,7 +714,6 @@ class RFSoC(VisaInstrument):
                     start_pointer = row['starting_pointer']
 
                     rep_nb_sig = rep_nb
-                    rep_tag = 1
 
                     if rep_nb>1:
                         color = '#{0:06X}'.format(DAC_color_rep)
@@ -725,7 +722,7 @@ class RFSoC(VisaInstrument):
 
                     pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
                                     Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-                                    rep_tag=rep_tag, rep_nb=rep_nb_sig, LUT=LUT, start_pointer=start_pointer),
+                                    rep_nb=rep_nb_sig, LUT=LUT, start_pointer=start_pointer),
                                     ignore_index=True)
 
                 else:
@@ -738,80 +735,15 @@ class RFSoC(VisaInstrument):
 
                     termination_time = stop
 
-
-        # ensuring that if n_rep > 1 the last dead time is added
-        termination_time = termination_time + dead_time
-
-
-        # --- Sequence termination, adding of the last waits
-
-        for ch in range(1,9):
-
-            if termination_time>time_ADC[ch-1] and time_ADC[ch-1]>0:
-
-                label = 'wait ' + str(wait_count)
-                start = time_ADC[ch-1]
-                stop = termination_time
-                time = (stop - start)
-                module = 'ADC'
-                Channel = 'ADC ch' + str(ch)
-                mode = 'wait'
-                param = row['param']
-                ch_num = ch
-                LUT = False
-
-                # take the rep_nb of the previous pulses 
-                if rep_nb>1:
-                    color = '#{0:06X}'.format(wait_color)
-                else:
-                    color = '#{0:06X}'.format(wait_color_rep)
-
-                wait_count +=1 
-
-                pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
-                                Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,ch_demod = ch_demod,
-                                rep_tag=k+1, rep_nb=rep_nb, LUT=LUT), ignore_index=True)
-
-
-        for ch in range(1,9):
-
-            if termination_time>time_DAC[ch-1] and time_DAC[ch-1]>0:
-
-                label = 'wait ' + str(wait_count)
-                start = time_DAC[ch-1]
-                stop = termination_time
-                time = (stop - start)
-                module = 'DAC'
-                Channel = 'DAC ch' + str(ch)
-                mode = 'wait'
-                param = row['param']
-                ch_num = ch
-                LUT = False
-
-                # take the rep_nb of the previous pulses 
-                if rep_nb>1:
-                    color = '#{0:06X}'.format(wait_color)
-                else:
-                    color = '#{0:06X}'.format(wait_color_rep)
-
-
-
-                pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module,
-                                Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-                                rep_tag=k+1, rep_nb=rep_nb, LUT=LUT), ignore_index=True)
-
-
         # --- Sequence plotting 
 
         if self.display_sequence:
-            pulses_tmp= pulses_df.loc[pulses_df['rep_tag']==1]
-            channel_list = set(list(pulses_tmp['Channel']))
-            display(pulses_tmp)
+            channel_list = set(list(pulses_df['Channel']))
 
             fig = make_subplots(rows=len(channel_list), cols=1, shared_xaxes=True)            
 
             for idx, ch in enumerate(channel_list):
-                pulses_loop =  pulses_tmp.loc[pulses_tmp['Channel']==ch]
+                pulses_loop =  pulses_df.loc[pulses_df['Channel']==ch]
                 pulses_loop = pulses_loop.sort_values('start')
 
                 fig.add_trace(go.Bar(x=pulses_loop.time, y=pulses_loop.Channel, orientation='h', text=pulses_loop.label, marker=dict(color=pulses_loop.color), 
@@ -820,7 +752,6 @@ class RFSoC(VisaInstrument):
 
             fig.update_layout(showlegend=False)
             fig.show()
-
 
 
         # store the length of the pulses and the channel used, it is use for data shapping in get_readout_pulse()
@@ -843,20 +774,22 @@ class RFSoC(VisaInstrument):
         Moreover, the loop pointer is set equal to the start pointer.
 
 
-        Keyword arguments:
+        Parameters:
         pulses_df -- panda DataFrame containing the pulse sequence. 
-        ADC -- LUT and pointer adress for the ADC (default True)
-        DAC -- LUT and pointer adress for the DAC (default True)
+        ADC -- LUT and pointer adress for the ADC (default True).
+        DAC -- LUT and pointer adress for the DAC (default True).
+
+        Return: 
+        DAC_pulses_pointer, ADC_pulses_pointer -- two lists containing the DAC and ADC pointers.
 
         """
-
 
         DAC_pulses_array = [np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([])]
         DAC_pulses_pointer = [[],[],[],[],[],[],[],[]]
 
         ADC_I_pulses_array = [np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([])]
         ADC_Q_pulses_array = [np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([]),np.array([])]
-        ADC_pulses_pointer = [[[], [], []], [[], [], []], [[], [], []], [[], [], []], , [[], [], []], , [[], [], []], , [[], [], []], [[], [], []]]
+        ADC_pulses_pointer = [[[], [], []], [[], [], []], [[], [], []], [[], [], []], [[], [], []] , [[], [], []] , [[], [], []], [[], [], []]]
 
 
         if DAC:
@@ -865,12 +798,11 @@ class RFSoC(VisaInstrument):
             LUT_df = DAC_df.loc[DAC_df['rep_tag']==1]
 
             if self.debug_mode:
-                print('------------------------------- LUT DEBUGGING ----------------------------------')
+                print('------------------------------- LUT DEBUGGING DAC ----------------------------------')
 
             event_time_list = list(dict.fromkeys(LUT_df['start']))
             event_time_list.sort()
 
-            label_pointer_list = [[],[],[],[],[],[],[],[]]
 
             for event_time in event_time_list:
                 event_df = LUT_df.loc[LUT_df['start'] == event_time]
@@ -878,40 +810,27 @@ class RFSoC(VisaInstrument):
                 for index, row in event_df.iterrows():
 
                     ch_num = int(row['ch_num'])
-                    if self.debug_mode:
-                        print(label_pointer_list[ch_num-1])
 
                     if not(np.isnan(row['start_pointer'])):
                         if row['LUT']:
-                            if row['label'] in label_pointer_list[ch_num-1]:
-                                idx = np.argwhere(np.array(label_pointer_list[ch_num-1])==row['label']).flatten()[0]
-                                if self.debug_mode:
-                                    print('Pulse found in DAC memory')
-                                    print(idx, DAC_pulses_pointer[ch_num-1])
-                                pulse_addr = DAC_pulses_pointer[ch_num-1][idx]
-                            else:
-                                if self.debug_mode:
-                                    print('Pulse not found in DAC memory')
-                                    print('Pointer set at: %i'%int((len(DAC_pulses_array[ch_num-1]) + row['start_pointer']*1e-6*self.sampling_rate)/11))
-                                pulse_addr = int((len(DAC_pulses_array[ch_num-1]) + row['start_pointer']*1e-6*self.sampling_rate)/11)
+ 
+                            if self.debug_mode:
+                                print('Pointer set at: %i'%int((len(DAC_pulses_array[ch_num-1]) + row['start_pointer']*1e-6*self.sampling_rate)/11))
+                            pulse_addr = int((len(DAC_pulses_array[ch_num-1]) + row['start_pointer']*1e-6*self.sampling_rate)/11)
                         else:
                             pulse_addr = DAC_pulses_pointer[ch_num-1][-1]
 
                         DAC_pulses_pointer[ch_num-1].append(pulse_addr)
-                        label_pointer_list[ch_num-1].append(row['label'])
+
                         if self.debug_mode:
                             print('For pulse ' + row['label'])
                             print('Saved pointer: ' + str(pulse_addr))
 
                     if row['LUT']:
-                        if self.debug_mode:
-                            print('The pulses saved in the LUT are:')
-                            print(row['mode'], row['LUT'], row['label'])
 
                         SCPI_command = self.pulse_gen_SCPI(row['mode'],row['param'],row['time'],ch_num, mode='DAC')
                         # adding pulse to waveform
                         DAC_pulses_array[ch_num-1] = np.append(DAC_pulses_array[ch_num-1],SCPI_command)
-
 
 
             if self.debug_mode:
@@ -983,14 +902,12 @@ class RFSoC(VisaInstrument):
 
 
             if self.debug_mode:
-                print('------------------------------- LUT DEBUGGING ----------------------------------')
+                print('------------------------------- LUT DEBUGGING ADC ----------------------------------')
                 display(LUT_df)
 
 
             event_time_list = list(dict.fromkeys(LUT_df['start']))
             event_time_list.sort()
-
-            label_pointer_list = [[], [], [], []]
 
             for event_time in event_time_list:
                 event_df = LUT_df.loc[LUT_df['start'] == event_time]
@@ -1003,32 +920,14 @@ class RFSoC(VisaInstrument):
                         ch_demod = row['ch_demod']
 
                         for idx, chd in enumerate(ch_demod):
-
-                            if self.debug_mode:
-                                print(label_pointer_list[chd-1])
-
                             if row['LUT']:
-                                if row['label'] in label_pointer_list[chd-1]:
-                                    idx_label = np.argwhere(np.array(label_pointer_list[chd-1])==row['label']).flatten()[0]
 
-                                    if self.debug_mode:
-                                        print('Pulse found in ADC memory')
-                                        print(idx_label)
-                                        print('adress start:  %i:' %(ADC_pulses_pointer[chd-1][0][idx_label]))
-                                        print('adress loop:  %i:' %(ADC_pulses_pointer[chd-1][1][idx_label]))
-                                        print('adress stop:  %i:' %(ADC_pulses_pointer[chd-1][2][idx_label]))
+                                if self.debug_mode:
+                                    print('Pulse not found in ADC memory')
+                                    print('Starting pointer set at: %i'%int(len(ADC_I_pulses_array[chd-1])/8))
 
-                                    pulse_addr_start = ADC_pulses_pointer[chd-1][0][idx_label]
-                                    pulse_addr_loop = ADC_pulses_pointer[chd-1][1][idx_label]
-                                    pulse_addr_stop = ADC_pulses_pointer[chd-1][2][idx_label]
-
-                                else:
-                                    if self.debug_mode:
-                                        print('Pulse not found in ADC memory')
-                                        print('Starting pointer set at: %i'%int(len(ADC_I_pulses_array[chd-1])/8))
-
-                                    pulse_addr_start = len(ADC_I_pulses_array[chd-1])//8
-                                    pulse_addr_loop = pulse_addr_start
+                                pulse_addr_start = len(ADC_I_pulses_array[chd-1])//8
+                                pulse_addr_loop = pulse_addr_start
 
 
                             else:
@@ -1087,16 +986,13 @@ class RFSoC(VisaInstrument):
 
 
 
-                            if not(row['label'] in label_pointer_list[chd-1]):
-                                pulse_addr_stop = len(ADC_I_pulses_array[chd-1])//8 - 1
+                            pulse_addr_stop = len(ADC_I_pulses_array[chd-1])//8 - 1
 
 
                             ADC_pulses_pointer[chd-1][0].append(pulse_addr_start)
                             ADC_pulses_pointer[chd-1][2].append(pulse_addr_stop)
                             ADC_pulses_pointer[chd-1][1].append(pulse_addr_loop)
 
-
-                            label_pointer_list[chd-1].append(row['label'])
                             if self.debug_mode:
                                 print('For pulse ' + row['label'])
                                 print('Saved start/loop/stop pointer: ', str(pulse_addr_start), str(pulse_addr_loop), str(pulse_addr_stop))
@@ -1159,40 +1055,15 @@ class RFSoC(VisaInstrument):
         return DAC_pulses_pointer, ADC_pulses_pointer
 
 
-    def process_sequencing_IQ_table(self, raw_sequence=False):
+    def process_sequencing_IQ_table(self):
 
         # --- Charging the raw pulse sequence and the event list
 
 
         pulses_df = self.pulses_sequence()
-
-        termination_time = np.max(pulses_df['stop'])
-        event_time_list_raw = np.sort(np.array(list(pulses_df['start'])))
-        if self.debug_mode:
-            print(event_time_list_raw)
-
-        pulse_dac = pulses_df.loc[pulses_df['module'] == 'DAC']
-        pulse_adc = pulses_df.loc[pulses_df['module'] == 'ADC']
-
-        last_event_dac =  np.sort(np.array(list(pulse_dac['start'])))[-1]
-        last_event_adc =  np.sort(np.array(list(pulse_adc['start'])))[-1]
-        last_event = max(last_event_adc, last_event_dac)
-
-        if self.debug_mode:
-            print('time step')
-            print(event_time_list_raw)
-            print('Termination of sequence detected at : ',termination_time)
-            print(last_event_dac, last_event_adc, last_event)
-
-
-        # Select the elementary pulses that will the add in the sequencer
-
-        if not(raw_sequence):
-            pulses_df = pulses_df.loc[pulses_df['rep_tag']==1]
-            event_time_list = list(dict.fromkeys(pulses_df['start']))
-            event_time_list.sort()
-        else:
-            event_time_list = event_time_list_raw
+        event_time_list = list(dict.fromkeys(pulses_df['start']))
+        event_time_list.sort()
+        termination_time = np.max((np.array(list(pulses_df['stop']))))
 
         # --- Initialisation of the parameters
 
@@ -1219,7 +1090,6 @@ class RFSoC(VisaInstrument):
         nb_pulses_ch = np.zeros(8)
         pulses_counter = np.ones(8)
 
-##################################################################################################
         nb_rep_vec = list(pulses_df['rep_nb'])
 
         if max(nb_rep_vec)>1:
@@ -1229,11 +1099,6 @@ class RFSoC(VisaInstrument):
 
             idx_max = np.argmax(nb_pulses_ch)
             unique_pointer = set(DAC_pulses_pointer[idx_max])
-
-            if max(nb_pulses_ch)>1 and len(unique_pointer)>2: 
-                log.error('Carfull when using more than one pulses with different memory location. \n \
-                           So far there is no stopping pointer in the DAC LUT. \n \
-                           Hence, this can lead to unconsistant result.')
 
         if self.debug_mode:
             print('*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*')
@@ -1444,7 +1309,6 @@ class RFSoC(VisaInstrument):
 
 
                                 # add the stop and loop pointer
-                                # global_sequence = np.append(global_sequence, 4129+2*idx)
                                 global_sequence = np.append(global_sequence, 4129+(chd - 1)*2)
 
                                 bin_loop = bin(ADC_pulses_pointer[chd - 1][1][pointer_adc[chd - 1]])[2:]
@@ -1469,7 +1333,6 @@ class RFSoC(VisaInstrument):
                                 if self.debug_mode:
                                     print('adding sequencer the loop and stopping pointer:')
                                     print('binary command:', bin_cmd)
-                                    # print(4129+2*idx, int(bin_cmd,2))
                                     print(4129+2*(chd - 1), int(bin_cmd,2))
 
 
@@ -1551,9 +1414,9 @@ class RFSoC(VisaInstrument):
 
         if rep_started:
             # wait_term = term_loop
-            wait_term = int(round((termination_time - last_event)*250))-1
+            wait_term = int(round((termination_time - event_time)*250))-1
         else:
-            wait_term = int(round((termination_time - last_event)*250))-1
+            wait_term = int(round((termination_time - event_time)*250))-1
 
 
         global_sequence = np.append(global_sequence,1)
