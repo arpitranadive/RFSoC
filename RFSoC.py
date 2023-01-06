@@ -466,15 +466,33 @@ class RFSoC(VisaInstrument):
 
         pulses_raw_df = self.pulses
 
+        pulses_raw_df['index'] = range(1, len(pulses_raw_df) + 1)
+        pulses_raw_df = pulses_raw_df.set_index('index')
+
         # --- Check pulse labeling 
 
         if len(set(pulses_raw_df['label'])) < len(pulses_raw_df['label']):
 
             log.error('Duplicate Labels: Labels need to be unique for consistent identification of pulse hierarchy.')
 
-        pulses_raw_df.set_index('label', inplace = True)
+        # --- check pulse timing compatibility with RFSoC timing constrains 
 
-        # --- Legacy, used to define a pulse with respect to another one in the time frame. May not work with this version (unchecked)
+        for index, row in pulses_raw_df.iterrows():
+
+            if row['length'] == self.time_conversion(row['length']) and row['start'] == self.time_conversion(row['start']):
+
+                pass
+
+            else:
+
+                pulses_raw_df.at[index,'length'] = self.time_conversion(row['length'])
+                pulses_raw_df.at[index,'start'] = self.time_conversion(row['start'])
+                
+                log.error('Incompatible timing: RFSoC supports events only in factors of 4 ns.')
+
+        # --- fixed hierarchy resolution, please let me know if issues are found -Arpit (202301)
+
+        pulses_raw_df.set_index('label', inplace = True)
 
         resolve_hierarchy = True
         while resolve_hierarchy:
@@ -652,6 +670,7 @@ class RFSoC(VisaInstrument):
             for k in range(rep_nb):
 
                 if start_vec[k] > time_DAC[int(row['channel'])-1]:
+                    
                     if k < 2:
                         label = 'wait ' + str(wait_count)
                         start = time_DAC[int(row['channel'])-1]
@@ -797,7 +816,8 @@ class RFSoC(VisaInstrument):
             LUT_df = pulses_df.loc[pulses_df['module'] == 'DAC']
 
             if self.debug_mode:
-                print('------------------------------- LUT DEBUGGING DAC ----------------------------------')
+
+                print('\n------------------------------- LUT DEBUGGING DAC ----------------------------------\n')
 
             event_time_list = list(dict.fromkeys(LUT_df['start']))
             event_time_list.sort()
@@ -833,6 +853,7 @@ class RFSoC(VisaInstrument):
 
 
             if self.debug_mode:
+
                 print('Pointer tab:')
                 print(DAC_pulses_pointer)
 
@@ -900,7 +921,8 @@ class RFSoC(VisaInstrument):
 
 
             if self.debug_mode:
-                print('------------------------------- LUT DEBUGGING ADC ----------------------------------')
+
+                print('\n------------------------------- LUT DEBUGGING ADC ----------------------------------\n')
                 display(LUT_df)
 
 
