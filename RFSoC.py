@@ -341,6 +341,7 @@ class RFSoC(VisaInstrument):
 
         self.raw_dump_location = "C:/Data_tmp"
 
+
         #Add the channels to the instrument
         for adc_num in np.arange(1,9):
             adc_name='ADC{}'.format(adc_num)
@@ -538,7 +539,7 @@ class RFSoC(VisaInstrument):
 
 
 
-        # --- Beginging of the treatment (ADC)
+        # --- Beginning of the treatment (ADC)
 
         tmp_df = pulses_raw_df.loc[pulses_raw_df['module'] == 'ADC']
 
@@ -552,19 +553,21 @@ class RFSoC(VisaInstrument):
 
             # if n_rep>1 we need to know the dead_time, the waiting time between two consecutive pulses 
             if rep_nb>1: 
-                dead_time = row['dead_time']
+                dead_time = self.time_conversion(self.dead_time)
             else:
                 dead_time = 0
 
-            # creat the start and stop of the pulses 
+            # create the start and stop of the pulses 
             start_vec = start + np.arange(rep_nb) * (length + dead_time)
             stop_vec = start + np.arange(1, rep_nb + 1) * length + np.arange(rep_nb) * dead_time
 
 
             for k in range(rep_nb):
+
                 # check if the event is a wait of a pulses (here wait)
                 if start_vec[k] > time_ADC[int(row['channel'])-1]:
-                    # in case n_rep>1 it only compute the two first iterations in order to take the deadtime
+
+                    # in case n_rep>1 it only compute the two first iterations in order to take the dead-time
                     if k < 2:
 
                         label = 'wait ' + str(wait_count)
@@ -649,7 +652,7 @@ class RFSoC(VisaInstrument):
 
 
 
-        # --- Beginging of the treatment (DAC)
+        # --- Beginning of the treatment (DAC)
 
         tmp_df = pulses_raw_df.loc[pulses_raw_df['module'] == 'DAC']
         for index, row in tmp_df.iterrows():
@@ -658,19 +661,13 @@ class RFSoC(VisaInstrument):
             start = row['start']
             length = row['length']
 
-            if row['mode'] != 'trigger' and rep_nb>1:
-                dead_time = row['dead_time']
-            else:
-                dead_time = 0
-
-
-            start_vec = start + np.arange(rep_nb) * (length + dead_time)
-            stop_vec = start + np.arange(1, rep_nb + 1) * length + np.arange(rep_nb) * dead_time
+            start_vec = start + np.arange(rep_nb) * (length)
+            stop_vec = start + np.arange(1, rep_nb + 1) * length
 
             for k in range(rep_nb):
 
                 if start_vec[k] > time_DAC[int(row['channel'])-1]:
-                    
+
                     if k < 2:
                         label = 'wait ' + str(wait_count)
                         start = time_DAC[int(row['channel'])-1]
@@ -742,7 +739,7 @@ class RFSoC(VisaInstrument):
 
 
 
-        # --- Pulse sequences treatment solving inconsistancy regarding stop time when n_rep>1 and more than one pulses is used. 
+        # --- Pulse sequences treatment solving inconsistency regarding stop time when n_rep>1 and more than one pulses is used. 
 
         pulses_fin = pd.DataFrame()
         channel_list = set(list(pulses_df['Channel']))
@@ -773,7 +770,7 @@ class RFSoC(VisaInstrument):
             fig.show()
 
 
-        # store the length of the pulses and the channel used, it is use for data shapping in get_readout_pulse()
+        # store the length of the pulses and the channel used, it is use for data shaping in get_readout_pulse()
         self.length_vec = length_vec
         self.ch_vec = ch_vec
 
@@ -789,14 +786,14 @@ class RFSoC(VisaInstrument):
         It also define the pointers that can be used. 
 
         For now three pointers can be defined in the ADC: start/loop/stop. 
-        However, the start pointer cannot be shifted for now (it is set at the begining of the pulses).
+        However, the start pointer cannot be shifted for now (it is set at the beginning of the pulses).
         Moreover, the loop pointer is set equal to the start pointer.
 
 
         Parameters:
         pulses_df -- panda DataFrame containing the pulse sequence. 
-        ADC -- LUT and pointer adress for the ADC (default True).
-        DAC -- LUT and pointer adress for the DAC (default True).
+        ADC -- LUT and pointer address for the ADC (default True).
+        DAC -- LUT and pointer address for the DAC (default True).
 
         Return: 
         DAC_pulses_pointer, ADC_pulses_pointer -- two lists containing the DAC and ADC pointers.
