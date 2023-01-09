@@ -1803,12 +1803,33 @@ class RFSoC(VisaInstrument):
 		self.write("SEQ:STOP")
 
 
-	def reset_PLL(self):
+	def reset_PLL(self, force_reset=False):
 
-		self.write("DAC:RELAY:ALL 0")
-		self.write("PLLINIT")
-		time.sleep(5)
-		self.write("DAC:RELAY:ALL 1")
+		perform_PLL_reset = False
+
+		if force_reset:
+
+			perform_PLL_reset = True
+
+		else:
+
+			pll_status = self.ask('PLLINIT?')
+
+			if pll_status == 0:
+
+				perform_PLL_reset = True
+
+		if perform_PLL_reset:
+
+			self.write("DAC:RELAY:ALL 0")
+			self.write("PLLINIT")
+			time.sleep(5)
+			self.write("DAC:RELAY:ALL 1")
+			print('PLL reset complete.')
+
+		else:
+
+			print('PLL already initialized.')
 
 
 	def reset_output_data(self):
@@ -2413,39 +2434,39 @@ class RFSoC(VisaInstrument):
 		print('Minimum size of one ADC pulse: '+str(pulse_length)+' us per active channel')
 
 
-	def ask_raw(self, cmd: str) -> str:
-			"""
-			Legacy function, may not work with the current driver
+	# def ask_raw(self, cmd: str) -> str:
+	# 		"""
+	# 		Legacy function, may not work with the current driver
 
-			Overwriting the ask_ray qcodes native function to query binary
-			Low-level interface to ``visa_handle.ask``.
-			Args:
-				cmd: The command to send to the instrument.
-			Returns:
-				str: The instrument's response.
-			"""
-			with DelayedKeyboardInterrupt():
-				keep_trying = True
-				count = 0
-				while keep_trying:
-					count += 1
-					self.visa_log.debug(f"Querying: {cmd}")
-					try:
-						response = self.visa_handle.query_binary_values(cmd, datatype="h", is_big_endian=False)
-						self.visa_log.debug(f"Response: {response}")
-						if len(response) > 1:
-							i = 0
-					except:
-						try:        # try to read the data as a single point of data in case buffer is empty
-							response = self.visa_handle.query_binary_values(cmd, datatype="h", is_big_endian=False, data_points=1, header_fmt='ieee', expect_termination=False)
-						except:
-							response = 'ERR'
-					if response != 'ERR' and response != [3338]:
-						keep_trying = False
-					if count>10:
-						keep_trying = False
+	# 		Overwriting the ask_ray qcodes native function to query binary
+	# 		Low-level interface to ``visa_handle.ask``.
+	# 		Args:
+	# 			cmd: The command to send to the instrument.
+	# 		Returns:
+	# 			str: The instrument's response.
+	# 		"""
+	# 		with DelayedKeyboardInterrupt():
+	# 			keep_trying = True
+	# 			count = 0
+	# 			while keep_trying:
+	# 				count += 1
+	# 				self.visa_log.debug(f"Querying: {cmd}")
+	# 				try:
+	# 					response = self.visa_handle.query_binary_values(cmd, datatype="h", is_big_endian=False)
+	# 					self.visa_log.debug(f"Response: {response}")
+	# 					if len(response) > 1:
+	# 						i = 0
+	# 				except:
+	# 					try:        # try to read the data as a single point of data in case buffer is empty
+	# 						response = self.visa_handle.query_binary_values(cmd, datatype="h", is_big_endian=False, data_points=1, header_fmt='ieee', expect_termination=False)
+	# 					except:
+	# 						response = 'ERR'
+	# 				if response != 'ERR' and response != [3338]:
+	# 					keep_trying = False
+	# 				if count>10:
+	# 					keep_trying = False
 
-			return response
+	# 		return response
 
 
 	def int_0(self):
