@@ -326,8 +326,10 @@ class RFSoC(VisaInstrument):
 		self.FPGA_clock = 250e6
 
 		self.DAC_amplitude_calib = [1, 1, 1, 1, 1, 1, 1, 1]
+		self.ADC_amplitude_calib = [1, 1, 1, 1, 1, 1, 1, 1]
 
 		self.pulses = pd.DataFrame()
+		self.seq_looping = pd.DataFrame()
 		self.ADC_ch_active = np.zeros(8)
 		self.length_vec = [[],[],[],[],[],[],[],[]]
 		self.ch_vec = []
@@ -337,7 +339,9 @@ class RFSoC(VisaInstrument):
 		self.debug_mode = False
 		self.debug_mode_plot_waveforms = False
 		self.debug_mode_waveform_string = False
-		self.loop_time = False 
+		self.loop_time = False
+
+		self.global_loop = (False,0) 
 
 		self.raw_dump_location = "C:/Data_tmp"
 
@@ -466,6 +470,7 @@ class RFSoC(VisaInstrument):
 		log.info('Started sequence processing'+'  \n')
 
 		pulses_raw_df = self.pulses
+		seq_looping = self.seq_looping
 
 		pulses_raw_df['index'] = range(1, len(pulses_raw_df) + 1)
 		pulses_raw_df = pulses_raw_df.set_index('index')
@@ -475,6 +480,10 @@ class RFSoC(VisaInstrument):
 		if len(set(pulses_raw_df['label'])) < len(pulses_raw_df['label']):
 
 			log.error('Duplicate Labels: Labels need to be unique for consistent identification of pulse hierarchy.')
+
+		if len(set(seq_looping['label'])) < len(seq_looping['label']):
+
+			log.error('Duplicate Labels: Labels need to be unique for consistent identification of looping hierarchy.')
 
 		# --- check pulse timing compatibility with RFSoC timing constrains 
 
@@ -504,7 +513,7 @@ class RFSoC(VisaInstrument):
 
 					if pulses_raw_df.loc[row['parent']]['parent'] == None and pulses_raw_df.loc[row['parent']]['partner'] == None:
 
-						pulses_raw_df.loc[index,'start'] = pulses_raw_df.loc[index,'start'] +  pulses_raw_df.loc[row['parent']]['start'] + (pulses_raw_df.loc[row['parent']]['length'])*pulses_raw_df.loc[row['parent']]['repetitions']
+						pulses_raw_df.loc[index,'start'] = pulses_raw_df.loc[index,'start'] +  pulses_raw_df.loc[row['parent']]['start'] + (pulses_raw_df.loc[row['parent']]['length'])
 						pulses_raw_df.loc[index,'parent'] = None
 
 				if row['partner'] != None:
@@ -533,24 +542,59 @@ class RFSoC(VisaInstrument):
 		# --- Initialization 
 
 		pulses_df = pd.DataFrame()
+		loops_df = pd.DataFrame()
+
 		time_ADC = [0,0,0,0,0,0,0,0]
 		time_DAC = [0,0,0,0,0,0,0,0]
 		length_vec = [[],[],[],[],[],[],[],[]]
 		ch_vec = []
 		# color of the displayed pulses with n_rep=1
+		color_dict = {}
 		wait_color = int("D3D3D3", 16)
-		DAC_color = int("306cc7", 16)
-		ADC_color = int("db500b", 16)
-		# color of the displayed pulses with n_rep>1
-		wait_color_rep = int("808080", 16)
-		DAC_color_rep = int("234e90", 16)
-		ADC_color_rep = int("913608", 16)
+		DAC_color = int("c1666b", 16)		#306cc7
+		ADC_color = int("4281a4", 16)		#db500b
+		loop_color = int("48a9a6", 16)
+		# # color of the displayed pulses with n_rep>1
+		# wait_color_rep = int("808080", 16)
+		# DAC_color_rep = int("234e90", 16)
+		# ADC_color_rep = int("913608", 16)
 
 		wait_count = 0 # counter used to label the wait 
 		termination_time = 0 # keep track of the latest event
 		ch_demod = None # either or not the ADC LUT will be used during the sequence
 
 
+		# --- Beginning of the treatment (loops)
+
+		for index, row in seq_looping.iterrows():
+
+			if self.debug_mode:
+
+				print('\n------------- Loop processing -------------\n')
+
+			if row['mode'] == 'global':
+
+				self.global_loop = (True,int(row['rep']))
+
+				label = 'looping ' + str(int(row['rep'])) + ' times'
+				channel = 'loop global'
+				start = 0
+				stop = -1
+				time = 0
+				mode = row['mode']
+				color = color = '#{0:06X}'.format(loop_color)
+
+				loops_df = loops_df.append(dict(label=label, start=start, stop=stop, time=time, mode=mode, Channel=channel, color=str(color)), ignore_index=True)
+
+				if self.debug_mode:
+
+					print('global loop detected for n = '+str(self.global_loop[1]))
+
+
+			if self.debug_mode:
+
+				display(loops_df)
+				print('\n------------- Loop processing finished -------------\n')
 
 		# --- Beginning of the treatment (DAC)
 
@@ -563,84 +607,50 @@ class RFSoC(VisaInstrument):
 
 		for index, row in tmp_df.iterrows():
 
-			rep_nb = int(row['repetitions'])
+			if row['start'] > time_DAC[int(row['channel'])-1]:
+				
+				label = 'wait' + str(wait_color-int("D3D3D3", 16)+1)
+				start = time_DAC[int(row['channel'])-1]
+				stop = row['start']
+				time = row['start'] - time_DAC[int(row['channel'])-1]
+				module = row['module']
+				Channel = 'DAC ch' + str(int(row['channel']))
+				mode = 'wait'
+				color_dict[str(wait_color)] = '#{0:06X}'.format(wait_color)
+				color = '#{0:06X}'.format(wait_color)
+				wait_color += 1
+				param = row['param']
+				ch_num = row['channel']
+				
+				pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num), ignore_index=True)
+
 			start = row['start']
 			length = row['length']
-
-			start_vec = start + np.arange(rep_nb) * (length)
-			stop_vec = start + np.arange(1, rep_nb + 1) * length
-
-			for k in range(rep_nb):
-
-				if start_vec[k] > time_DAC[int(row['channel'])-1]:
-
-					if k < 2:
-						label = 'wait ' + str(wait_count)
-						start = time_DAC[int(row['channel'])-1]
-						stop = start_vec[k]
-						time = (start_vec[k] - time_DAC[int(row['channel'])-1])
-						module = row['module']
-						Channel = 'DAC ch' + str(int(row['channel']))
-						mode = 'wait'
-						param = None
-						ch_num = row['channel']
-						LUT = False
-
-						# should not repeat the first waiting time before the loop
-						if k == 0:
-							rep_nb_wait = 1
-							color = '#{0:06X}'.format(wait_color)
-						else:
-							rep_nb_wait = rep_nb
-							color = '#{0:06X}'.format(wait_color_rep)
-
-						pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module,
-										Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-										rep_nb=rep_nb_wait, LUT=LUT)])],
-										ignore_index=True)
-
-					else:
-						stop = start_vec[k]
-						break
-
-					wait_count +=1
+			stop = start + length
 
 
-				if k < 1:
-
-					label = index
-					start = start_vec[k]
-					stop = stop_vec[k]
-					time = length
-					module = row['module']
-					Channel = 'DAC ch' + str(int(row['channel']))
-					mode = row['mode']
-					param = row['param']
-					ch_num = row['channel']
-					LUT = not(np.isnan(row['LUT']))
-					start_pointer = row['starting_pointer']
-
-					rep_nb_sig = rep_nb
-
-					if rep_nb>1:
-						color = '#{0:06X}'.format(DAC_color_rep)
-					else:
-						color = '#{0:06X}'.format(DAC_color)
-
-					pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module,
-									Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-									rep_nb=rep_nb_sig, LUT=LUT, start_pointer=start_pointer)])],
-									ignore_index=True)
-
-				else:
-					stop = stop_vec[k]
+			label = index
+			time = length
+			module = row['module']
+			Channel = 'DAC ch' + str(int(row['channel']))
+			mode = row['mode']
+			param = row['param']
+			ch_num = row['channel']
+			LUT = not(np.isnan(row['LUT']))
+			start_pointer = row['starting_pointer']
 
 
-				time_DAC[int(row['channel'])-1] = stop
+			color = '#{0:06X}'.format(DAC_color)
 
-				if stop>termination_time:
+			pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module, Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num, LUT=LUT, start_pointer=start_pointer)])], ignore_index=True)
 
-					termination_time = stop
+
+
+			time_DAC[int(row['channel'])-1] = stop
+
+			if stop>termination_time:
+
+				termination_time = stop
 
 		if self.debug_mode:
 
@@ -660,126 +670,49 @@ class RFSoC(VisaInstrument):
 
 		for index, row in tmp_df.iterrows():
 
-			rep_nb = int(row['repetitions']) # check for repetition
+			if row['start'] > time_ADC[int(row['channel'])-1]:
+			
+				label = 'wait' + str(wait_color-int("D3D3D3", 16)+1)
+				start = time_ADC[int(row['channel'])-1]
+				stop = row['start']
+				time = row['start'] - time_ADC[int(row['channel'])-1]
+				module = row['module']
+				Channel = 'ADC ch' + str(int(row['channel']))
+				mode = 'wait'
+				color_dict[str(wait_color)] = '#{0:06X}'.format(wait_color)
+				color = '#{0:06X}'.format(wait_color)
+				wait_color += 1
+				param = row['param']
+				ch_num = row['channel']
+				
+				pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num), ignore_index=True)
+
 			start = row['start']
 			length = row['length']
+			stop = start + length
+			label = index
+			time = length
+			module = row['module']
+			Channel = 'ADC ch' + str(int(row['channel']))
+			ch_num = row['channel']
+			color = '#{0:06X}'.format(ADC_color)
 
-			print('start : ',start,index)
-
-
-			# sync to the partner
-			try: 
-
-				dead_time = self.time_conversion(row['param'][0]['partnet_length'])-length
-
-			except:
-
-				dead_time = 0
-
-			try: 
-
-				start -= self.time_conversion(row['param'][0]['partnet_start'])
-
-			except:
-
-				pass
-
-			print('start : ',start,index)
-
-			# create the start and stop of the pulses 
-			start_vec = start + np.arange(rep_nb) * (length + dead_time-start)
-			stop_vec = start + np.arange(1, rep_nb + 1) * length + np.arange(rep_nb) * (dead_time-start)
-
-			print(start_vec)
-			print(stop_vec)
-
-			for k in range(rep_nb):
-
-				# check if the event is a wait of a pulses (here wait)
-				if start_vec[k] > time_ADC[int(row['channel'])-1]:
-
-					# in case n_rep>1 it only compute the two first iterations in order to take the dead-time
-					if k < 2:
-
-						label = 'wait ' + str(wait_count)
-						start = time_ADC[int(row['channel'])-1]
-						stop = start_vec[k]
-						time = (start_vec[k] - time_ADC[int(row['channel'])-1])
-						module = row['module']
-						Channel = 'ADC ch' + str(int(row['channel']))
-						mode = 'wait'
-						param = None
-						ch_num = row['channel']
-						LUT = False
-						ch_demod = row['demodulation_channels']
-
-						if k == 0:
-							rep_nb_wait = 1
-							color = '#{0:06X}'.format(wait_color)
-						else:
-							rep_nb_wait = rep_nb
-							color = '#{0:06X}'.format(wait_color_rep)
-
-						pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module,
-										Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,
-										rep_nb=rep_nb_wait, LUT=LUT, ch_demod=ch_demod)])], ignore_index=True)
-
-					else:
-						# if k > 2 it only updates the last event time
-						stop = start_vec[k]
-						break
-					
-
-					wait_count +=1
-
-				# if case n_rep>1 it only compute the first iteration for computation efficiency
-				if k < 1:
-					label = index
-					start = start_vec[k]
-					stop = stop_vec[k]
-					time = length
-					module = row['module']
-					Channel = 'ADC ch' + str(int(row['channel']))
-					ch_num = row['channel']
-
-					rep_nb_sig = rep_nb
-
-					if rep_nb>1:
-						color = '#{0:06X}'.format(ADC_color_rep)
-					else:
-						color = '#{0:06X}'.format(ADC_color)
-
-					# fill the parameters only used for the 'IQ_table' mode 
-					LUT = not(np.isnan(row['LUT']))
-					ch_demod = row['demodulation_channels']
-					param = row['param']
-					mode = row['mode']
-					start_pointer = 0 # shift in the starting pointer not implemented so far
+			# fill the parameters only used for the 'IQ_table' mode 
+			LUT = not(np.isnan(row['LUT']))
+			ch_demod = row['demodulation_channels']
+			param = row['param']
+			mode = row['mode']
+			start_pointer = 0 # shift in the starting pointer not implemented so far
 
 
-					pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module,
-									Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,start_pointer=start_pointer,
-									rep_nb=rep_nb_sig, LUT=LUT, ch_demod=ch_demod)])],
-									ignore_index=True)
+			pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module, Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,start_pointer=start_pointer, LUT=LUT, ch_demod=ch_demod)])], ignore_index=True)
 
 
+			time_ADC[int(row['channel'])-1] = stop
 
-				# --- Update of the acquisition parameter used to format the data in get_readout_pulse()
-					nb_points = int(time*1e-6*self.sampling_rate)
-					for chd in ch_demod:
-						ch_vec.append(chd - 1)
-						length_vec[chd-1].append(nb_points)
-
-
-				else:
-					# if k>1 it only updates the last event time
-					stop = stop_vec[k]
-
-				time_ADC[int(row['channel'])-1] = stop
-
-				if stop>termination_time:
-				# update of the termination time used to compute if a wait will be added before the next pulse
-					termination_time = stop
+			if stop>termination_time:
+			# update of the termination time used to compute if a wait will be added before the next pulse
+				termination_time = stop
 
 		if self.debug_mode:
 
@@ -790,30 +723,77 @@ class RFSoC(VisaInstrument):
 
 		# --- Pulse sequences treatment solving inconsistency regarding stop time when n_rep>1 and more than one pulses is used. 
 
-		pulses_fin = pd.DataFrame()
-		channel_list = set(list(pulses_df['Channel']))
-
-		for idx, ch in enumerate(channel_list):
-			pulses_ch =  pulses_df.loc[pulses_df['Channel']==ch]
-			pulses_ch = pulses_ch.sort_values('start')
-			for i in range(len(pulses_ch) - 1):
-				pulses_ch.iloc[i, pulses_ch.columns.get_loc('stop')] = pulses_ch.iloc[i + 1]['start']
-				pulses_ch.iloc[i, pulses_ch.columns.get_loc('time')] = pulses_ch.iloc[i]['stop'] - pulses_ch.iloc[i]['start']
-			pulses_fin = pd.concat([pulses_fin, pulses_ch], ignore_index=True)
+		# pulses_fin = pd.DataFrame()
+		# for idx, ch in enumerate(channel_list):
+		# 	pulses_ch =  pulses_df.loc[pulses_df['Channel']==ch]
+		# 	pulses_ch = pulses_ch.sort_values('start')
+		# 	for i in range(len(pulses_ch) - 1):
+		# 		pulses_ch.iloc[i, pulses_ch.columns.get_loc('stop')] = pulses_ch.iloc[i + 1]['start']
+		# 		pulses_ch.iloc[i, pulses_ch.columns.get_loc('time')] = pulses_ch.iloc[i]['stop'] - pulses_ch.iloc[i]['start']
+		# 	pulses_fin = pd.concat([pulses_fin, pulses_ch], ignore_index=True)
+		pulses_fin = pulses_df
 
 		# --- Sequence plotting 
 
 		if self.display_sequence:
 
-			fig = make_subplots(rows=len(channel_list), cols=1, shared_xaxes=True)            
+			# --- Prepare channel list for display
 
+			channel_set = list(set(list(pulses_df['Channel'])))
+			channel_list = []
+
+			for i in range(1,9):
+
+				if 'DAC ch'+str(i) in channel_set:
+
+					channel_list.append('DAC ch'+str(i))
+
+				if 'ADC ch'+str(i) in channel_set:
+
+					channel_list.append('ADC ch'+str(i))
+
+			if self.global_loop[0]:
+
+				channel_list.append('loop global')
+
+			# --- Prepare the figure
+
+			pulses_loop_list = []
 			for idx, ch in enumerate(channel_list):
-				pulses_loop =  pulses_fin.loc[pulses_fin['Channel']==ch]
-				pulses_loop = pulses_loop.sort_values('start')
+
+				if ch[0:4] != 'loop':
+
+					pulses_loop =  pulses_fin.loc[pulses_fin['Channel']==ch]
+					pulses_loop = pulses_loop.sort_values('start')
+
+					pulses_loop_list.append(pulses_loop)
+
+				elif ch == 'loop global':
+
+					pulses_loop = loops_df.loc[loops_df['mode']=='global']
+					pulses_loop.at[0,'stop'] = termination_time
+					pulses_loop.at[0,'time'] = termination_time
+					pulses_loop_list.append(pulses_loop)
+
+			fig = make_subplots(rows=len(channel_list), cols=1, shared_xaxes=True)   
+
+			if self.debug_mode:
+
+				print('\n------------- Sequence display table -------------\n')         
+
+			for idx, pulses_loop in enumerate(pulses_loop_list):
+
+				if self.debug_mode:
+
+					display(pulses_loop)
 
 				fig.add_trace(go.Bar(x=pulses_loop.time, y=pulses_loop.Channel, orientation='h', text=pulses_loop.label, marker=dict(color=pulses_loop.color), 
 										customdata=np.dstack((pulses_loop.label, pulses_loop.start, pulses_loop.stop))[0],
 										hovertemplate='label: %{customdata[0]: s} <br>start: %{customdata[1]:.3f} <br>stop: %{customdata[2]:.3f}'), idx + 1, 1)
+
+			if self.debug_mode:
+
+				print('\n------------- Sequence display table -------------\n')
 
 			fig.update_layout(showlegend=False)
 			fig.show()
@@ -859,49 +839,55 @@ class RFSoC(VisaInstrument):
 
 		if DAC:
 
-			LUT_df = pulses_df.loc[pulses_df['module'] == 'DAC']
+			LUT_df = pulses_df.loc[(pulses_df['module'] == 'DAC') & (pulses_df['mode'] != 'wait')]
 
 			if self.debug_mode:
 
-				print('\n------------------------------- LUT DEBUGGING DAC ----------------------------------\n')
+				print('\n------------------------------- DAC LUT generation and upload ----------------------------------\n')
+				display(LUT_df)
 
 			event_time_list = list(dict.fromkeys(LUT_df['start']))
 			event_time_list.sort()
 
 
 			for event_time in event_time_list:
+
 				event_df = LUT_df.loc[LUT_df['start'] == event_time]
+
+				if self.debug_mode:
+
+					print('\nCreating LUT map for events at ' + str(event_time))
+					display(event_df)
 
 				for index, row in event_df.iterrows():
 
 					ch_num = int(row['ch_num'])
 
 					if not(np.isnan(row['start_pointer'])):
+
 						if row['LUT']:
+
 							pulse_addr = round((len(DAC_pulses_array[ch_num-1]) + row['start_pointer']*1e-6*self.sampling_rate)/11)
 							last_pointer = pulse_addr
 
+							DAC_waveform = self.pulse_gen_SCPI(row['mode'],row['param'],row['time'],ch_num, module='DAC', pulse_label=row['label'])
+							# adding pulse to waveform
+							DAC_pulses_array[ch_num-1] = np.append(DAC_pulses_array[ch_num-1],DAC_waveform)
+
 						else:
-							pulse_addr =  last_pointer + round((row['start_pointer']*1e-6*self.sampling_rate)/8)
 							
+							pulse_addr =  last_pointer + round((row['start_pointer']*1e-6*self.sampling_rate)/8)
 							
 						DAC_pulses_pointer[ch_num-1].append(pulse_addr)
 
 						if self.debug_mode:
-							print('For pulse ' + row['label'])
-							print('Saved pointer: ' + str(pulse_addr))
 
-					if row['LUT']:
+							print('For pulse \"' + row['label'] + '\" LUT pointer at: ' + str(pulse_addr))
+							print()
 
-						SCPI_command = self.pulse_gen_SCPI(row['mode'],row['param'],row['time'],ch_num, mode='DAC')
-						# adding pulse to waveform
-						DAC_pulses_array[ch_num-1] = np.append(DAC_pulses_array[ch_num-1],SCPI_command)
+					else:
 
-
-			if self.debug_mode:
-
-				print('Pointer tab:')
-				print(DAC_pulses_pointer)
+						log.error('Start pointer not found for ' + row['label'])
 
 
 			for i in range(8):
@@ -910,36 +896,50 @@ class RFSoC(VisaInstrument):
 
 					self.write('DAC:DATA:CH{}:CLEAR'.format(str(i+1)))
 
-					if self.debug_mode and self.debug_mode_plot_waveforms:
+					if self.debug_mode:
 
-						fig = plt.figure(figsize=(8,5))
-						plt.plot(range(len(DAC_pulses_array[i])),DAC_pulses_array[i])
+						LUT_points = DAC_pulses_array[i].copy()
+						LUT_points = self.DAC_amplitude_calib[i]*(LUT_points.reshape((-1, 11)).T[:-3].T.reshape((-1)))/(2**13)
+
+						fig = plt.figure(figsize=(18,5))
+						plt.plot(np.array(range(len(LUT_points)))/2000,LUT_points)
 						plt.grid()
-						plt.legend(fontsize = 14)
+						plt.title('LUT for DAC ch '+str(i+1),fontsize = 18)
+						# plt.legend(fontsize = 14)
 						plt.show()
 
 					DAC_SCPI_cmd = 'DAC:DATA:CH' + str(i+1) + ' 0,' + ','.join((DAC_pulses_array[i].astype(int)).astype(str)) 
 
-					# if self.debug_mode and self.debug_mode_waveform_string:
-					if self.debug_mode_waveform_string:
+					if self.debug_mode:
 
-						print('DAC sequence for CH '+str(i+1)+': ',DAC_SCPI_cmd)
+						print('\nDAC sequence for CH '+str(i+1)+':\n',DAC_SCPI_cmd[:40]+'...')
 
 					log.info('Writing waveform for CH'+str(i+1)+'  \n')
 					self.write(DAC_SCPI_cmd)
 
 			log.info('Waveform processing complete' + '\n')
 
+			if self.debug_mode:
+
+				print('\n------------------------------- DAC LUT processing finished ----------------------------------\n')
+
 		if ADC:
 
-			LUT_df = pulses_df.loc[pulses_df['module'] == 'ADC']
+			LUT_df = pulses_df.loc[(pulses_df['module'] == 'ADC') & (pulses_df['mode'] != 'wait')]
+
+			if self.debug_mode:
+
+				print('\n------------------------------- ADC LUT generation and upload ----------------------------------\n')
+				display(LUT_df)
 
 			ch_demod_list = LUT_df['ch_demod'].tolist()
 			ch_demod_list = [item for sublist in ch_demod_list for item in sublist]
 			ch_demod_list = set(ch_demod_list)
 
 			for i in range(1,9):
+
 				if i in ch_demod_list:
+
 					if i==1:
 						self.ADC1.status('ON')
 						self.ADC1.fmixer(0)
@@ -965,150 +965,146 @@ class RFSoC(VisaInstrument):
 						self.ADC8.status('ON')
 						self.ADC8.fmixer(0)
 
+					if self.debug_mode:
 
-			if self.debug_mode:
-
-				print('\n------------------------------- LUT DEBUGGING ADC ----------------------------------\n')
-				display(LUT_df)
+						print('Activating ADC channel ' + str(i) + ' for data acquisition.\n')
 
 
 			event_time_list = list(dict.fromkeys(LUT_df['start']))
 			event_time_list.sort()
 
 			for event_time in event_time_list:
+
 				event_df = LUT_df.loc[LUT_df['start'] == event_time]
+
+				if self.debug_mode:
+
+					print('\nCreating LUT map for events at ' + str(event_time))
+					display(event_df)
 
 				for index, row in event_df.iterrows():
 
-					if not(np.isnan(row['start_pointer'])):
+					if row['mode']=='sin':
 
-						ch_num = int(row['ch_num'])
-						ch_demod = row['ch_demod']
+						if not(np.isnan(row['start_pointer'])):
 
-						for idx, chd in enumerate(ch_demod):
-							if row['LUT']:
+							ch_num = int(row['ch_num'])
+							ch_demod = row['ch_demod']
 
-								if self.debug_mode:
-									print('Pulse not found in ADC memory')
-									print('Starting pointer set at: %i'%round(len(ADC_I_pulses_array[chd-1])/8))
+							for idx, chd in enumerate(ch_demod):
 
-								pulse_addr_start = len(ADC_I_pulses_array[chd-1])//8
-								pulse_addr_loop = pulse_addr_start
+								if row['LUT']:
 
-
-							else:
-								pulse_addr_start = ADC_pulses_pointer[chd-1][0][-1]
-								pulse_addr_stop = ADC_pulses_pointer[chd-1][2][-1]
-								pulse_addr_loop = ADC_pulses_pointer[chd-1][1][-1]
-
-
-							if row['LUT']:
-								if self.debug_mode:
-									print('The pulses saved in the LUT are:')
-									print(row['mode'], row['LUT'], row['label'])
-
-								if row['mode']=='sin':
 									if self.debug_mode:
-										print(row['param'])
+
+										print('Uploading new LUT for ADC acquisition \"' + row['label'] + '\" with start pointer at: %i'%round(len(ADC_I_pulses_array[chd-1])/8))
+										# print('Starting pointer set at: %i'%round(len(ADC_I_pulses_array[chd-1])/8))
+
+									pulse_addr_start = len(ADC_I_pulses_array[chd-1])//8
+									pulse_addr_loop = pulse_addr_start
 
 									param_I = row['param'][idx]
 									freq_demod = param_I['freq']
 
-									if 1e3%freq_demod!=0:
-										log.error('Demodulation frequency is not a multiple of the sampling_rate. \
-												   As a result, you are not using the loop pointer and the memory \
-												   usage of the ADC LUT is suboptimal.')
-										time_vec = row['time']
+									# -- Error statement needs more explanation : marked for removal
+									#
+									# if 1e3%freq_demod!=0:
+									# 	log.error('Demodulation frequency is not a multiple of the sampling_rate. \
+									# 			   As a result, you are not using the loop pointer and the memory \
+									# 			   usage of the ADC LUT is sub-optimal.')
+									# 	time_vec = row['time']
+									# else:
+									# 	period_demod = int(1e3/freq_demod) # in ns
+									# 	period_loop = int(1e9/self.sampling_rate*8) # in ns
+									# 	time_vec = np.lcm(period_demod, period_loop)*1e-3 # in µs
 
+									param_Q = param_I.copy()
+									param_I['phase_offset'] = 0
+									param_Q['phase_offset'] = np.pi/2
 
-									else:
-										period_demod = int(1e3/freq_demod) # in ns
-										period_loop = int(1e9/self.sampling_rate*8) # in ns
-										time_vec = np.lcm(period_demod, period_loop)*1e-3 # in µs
-
-										if self.debug_mode:
-											print('Demodulation period/ Loop period/ Time vec: ')
-											print(period_demod, period_loop, time_vec)
-
-
-									param_Q = param_I
-
-									param_Q = {**param_I, 'phase_offset': param_I['phase_offset'] + np.pi/2}
-
-
-									SCPI_command_I = self.pulse_gen_SCPI(row['mode'], param_I, time_vec, chd, mode='ADC')
-									SCPI_command_Q = self.pulse_gen_SCPI(row['mode'], param_Q, time_vec, chd, mode='ADC')
+									waveform_I = self.pulse_gen_ADC_LUT(param_I,row['time'],chd)
+									waveform_Q = self.pulse_gen_ADC_LUT(param_Q,row['time'],chd)
 
 									if self.debug_mode:
-										print(SCPI_command_I)
 
-									ADC_I_pulses_array[chd-1] = np.append(ADC_I_pulses_array[chd-1], SCPI_command_I)
-									ADC_Q_pulses_array[chd-1] = np.append(ADC_Q_pulses_array[chd-1], SCPI_command_Q)
+										fig = plt.figure(figsize=(18,5))
+										plt.plot(np.array(range(len(waveform_I)))/2000,waveform_I/(2**13),label='I')
+										plt.plot(np.array(range(len(waveform_Q)))/2000,waveform_Q/(2**13),label='Q')
+										plt.grid()
+										plt.title('LUT for ADC pulse \"'+row['label']+'\"',fontsize = 18)
+										plt.legend(fontsize = 14)
+										plt.show()
 
-
+									ADC_I_pulses_array[chd-1] = np.append(ADC_I_pulses_array[chd-1], waveform_I)
+									ADC_Q_pulses_array[chd-1] = np.append(ADC_Q_pulses_array[chd-1], waveform_Q)
 
 								else:
-									log.error('Other functions than sin are not supported for demodulation for now')
+
+									log.error('ADC LUT sharing may have bugs and not supported yet.')
+
+									# pulse_addr_start = ADC_pulses_pointer[chd-1][0][-1]
+									# pulse_addr_stop = ADC_pulses_pointer[chd-1][2][-1]
+									# pulse_addr_loop = ADC_pulses_pointer[chd-1][1][-1]
 
 
 
-							pulse_addr_stop = len(ADC_I_pulses_array[chd-1])//8 - 1
+								pulse_addr_stop = len(ADC_I_pulses_array[chd-1])//8 - 1
 
 
-							ADC_pulses_pointer[chd-1][0].append(pulse_addr_start)
-							ADC_pulses_pointer[chd-1][2].append(pulse_addr_stop)
-							ADC_pulses_pointer[chd-1][1].append(pulse_addr_loop)
+								ADC_pulses_pointer[chd-1][0].append(pulse_addr_start)
+								ADC_pulses_pointer[chd-1][1].append(pulse_addr_loop)
+								ADC_pulses_pointer[chd-1][2].append(pulse_addr_stop)
 
-							if self.debug_mode:
-								print('For pulse ' + row['label'])
-								print('Saved start/loop/stop pointer: ', str(pulse_addr_start), str(pulse_addr_loop), str(pulse_addr_stop))
+								if self.debug_mode:
+									print('For pulse ' + row['label'] + 'Saved start/loop/stop pointer: ', str(pulse_addr_start), str(pulse_addr_loop), str(pulse_addr_stop))
+									print()
 
+						else:
+
+							log.error('Start pointer not found for ' + row['label'])
+
+					else:
+
+						log.error('Only sinusoidal demodulation is supported in current version.')
 
 			if self.debug_mode:
-				print('Pointer tab:')
+				print('\nADC pointer array:')
 				print(ADC_pulses_pointer)
+				print()
 
-
+			# -- Unclear reset, ADC memory is 128,000 points - marked for removal
+			#
 			# reset memory :
-
-			for i in range(4):
-
-				empty_list = str([0]*16384)[1:-1]
-				empty_list.replace(' ', '')
-
-				ADC_SCPI_cmd_I = 'ADC:I' + str(i+1) +' 0,' + empty_list
-				ADC_SCPI_cmd_Q = 'ADC:Q' + str(i+1) +' 0,' + empty_list
-
-				self.write(ADC_SCPI_cmd_I)
-				self.write(ADC_SCPI_cmd_Q)
-
+			#
+			# for i in range(4):
+			# 	empty_list = str([0]*16384)[1:-1]
+			# 	empty_list = empty_list.replace(' ', '')
+			# 	ADC_SCPI_cmd_I = 'ADC:I' + str(i+1) +' 0,' + empty_list
+			# 	ADC_SCPI_cmd_Q = 'ADC:Q' + str(i+1) +' 0,' + empty_list
+			# 	self.write(ADC_SCPI_cmd_I)
+			# 	self.write(ADC_SCPI_cmd_Q)
 
 			for i in range(4):
 
 				if len(ADC_I_pulses_array[i])>0:
 
+					if self.debug_mode:
 
-					# not implemented for now
-					# self.write('ADC:DATA:CH{}:CLEAR'.format(str(i+1)))
-
-					if self.debug_mode and self.debug_mode_plot_waveforms:
-
-						fig, ax = plt.subplots(1, 1, figsize=(8,5))
-
-						ax[0].plot(range(len(ADC_I_pulses_array[i])),ADC_I_pulses_array[i])
-						ax[1].plot(range(len(ADC_Q_pulses_array[i])),ADC_Q_pulses_array[i])
-						fig.show()
-
-
+						fig = plt.figure(figsize=(18,5))
+						plt.plot(np.array(range(len(ADC_I_pulses_array[i])))/2000,ADC_I_pulses_array[i]/(2**13),label='I')
+						plt.plot(np.array(range(len(ADC_Q_pulses_array[i])))/2000,ADC_Q_pulses_array[i]/(2**13),label='Q')
+						plt.grid()
+						plt.title('LUT for ADC channel(mixer) \"'+str(i+1)+'\"',fontsize = 18)
+						plt.legend(fontsize = 14)
+						plt.show()
 
 					ADC_SCPI_cmd_I = 'ADC:I' + str(i+1) +' 0,' + ','.join((ADC_I_pulses_array[i].astype(int)).astype(str))
 					ADC_SCPI_cmd_Q = 'ADC:Q' + str(i+1) +' 0,' + ','.join((ADC_Q_pulses_array[i].astype(int)).astype(str))
 
-					# if self.debug_mode and self.debug_mode_waveform_string:
-					if self.debug_mode_waveform_string:
+					if self.debug_mode:
 
-						print('ADC sequence for I'+str(i+1)+':', ADC_SCPI_cmd_I)
-						print('ADC sequence for Q'+str(i+1)+':', ADC_SCPI_cmd_Q)
+						print('ADC sequence for I'+str(i+1)+':', ADC_SCPI_cmd_I[0:50])
+						print('ADC sequence for Q'+str(i+1)+':', ADC_SCPI_cmd_Q[0:50])
 
 					log.info('Writing waveform for I'+str(i+1)+'  \n')
 					self.write(ADC_SCPI_cmd_I)
@@ -1126,7 +1122,7 @@ class RFSoC(VisaInstrument):
 		"""
 		This function take the stored pulses sequence and create the SCPI command 
 		that is sent to the RFSoC sequencer. 
-		It also fill the ADC/DAC LUT via LUT_and_adress_filling()
+		It also fills the ADC/DAC LUT via LUT_and_adress_filling()
 		"""
 
 		# --- Charging the pulse sequence and the event list
@@ -1581,11 +1577,36 @@ class RFSoC(VisaInstrument):
 		pointer_dac = [0,0,0,0,0,0,0,0]
 
 
-	def pulse_gen_SCPI(self,function,param,duration,ch, mode):
+
+	def pulse_gen_ADC_LUT(self,param,duration,ch):
+
+		"""
+		This functions separates the pulse generation for ADC LUTs, 
+		disentangling the calibration of channel and module specific 
+		calibration.
+		"""
+
+		period = 1./self.sampling_rate
+		time_vec = np.arange(period,duration*1e-6+period/2,period)
+
+		wavepoints = ((2**13)*self.ADC_amplitude_calib[ch-1]*param['amp'] - 1)*np.sin(-param['phase_offset'] + 2*np.pi*param['freq']*1e6*time_vec)
+
+		idx_of = np.nonzero(((wavepoints > 8191) | (wavepoints < -8192)))[0]
+		if len(np.nonzero(wavepoints[idx_of] != 16381)[0])>0:
+			if module =='ADC':
+				log.error('Error when filling the ADC memory: maximal amplitude is over the resolution') 
+			elif module == 'ADC':
+				log.error('Error when filling the ADC memory: maximal amplitude is over the resolution') 
+
+		return wavepoints
+
+
+
+	def pulse_gen_SCPI(self,mode,param,duration,ch, module, pulse_label='unknown'):
 
 		"""
 		This function convert the pulses parameters into a 1D array of Volt amplitude in bit scale.
-		This is used in LUT_and_adress_filling() to creat the SCPI command. 
+		This is used in LUT_and_adress_filling() to create the SCPI command. 
 
 		Parameters: 
 		function -- (str) function to generate, can be 'sin+sin' for a sum of sin
@@ -1593,7 +1614,7 @@ class RFSoC(VisaInstrument):
 		param --  list containing the function parameters
 		duration -- (float) pulse duration 
 		ch --  (int) LUT channel
-		mode -- (str) 'DAC' or 'ADC'
+		module -- (str) 'DAC' or 'ADC'
 
 		return: 
 		wavepoints -- 1D array of points that will be stored in the LUT 
@@ -1604,7 +1625,7 @@ class RFSoC(VisaInstrument):
 		# stop vector used to separate different pulses in a channel 
 		stop_vector = np.array([0,0,0,0,0,0,0,0,0,0,16383])
 
-		if function == 'sin+sin':
+		if mode == 'sin+sin':
 
 			wavepoints1 = ((2**13)*self.DAC_amplitude_calib[ch-1]*param['amp1']*np.sin(-param['phase_offset1'] - 1) + 2*np.pi*param['freq1']*1e6*time_vec)
 			wavepoints2 = ((2**13)*self.DAC_amplitude_calib[ch-1]*param['amp2']*np.sin(-param['phase_offset2'] - 1) + 2*np.pi*param['freq2']*1e6*time_vec)
@@ -1614,31 +1635,38 @@ class RFSoC(VisaInstrument):
 			# check if some points are above the limit imposed by the 13 bits
 			idx_of = np.nonzero(((wavepoints > 8191) | (wavepoints < -8192)))[0]
 			if len(np.nonzero(wavepoints[idx_of] != 16381)[0])>0:
-				if mode =='DAC':
+
+				if module =='DAC':
 					log.error('Error when filling the DAC memory: maximal amplitude is over the resolution') 
-				elif mode == 'ADC':
+				elif module == 'ADC':
 					log.error('Error when filling the ADC memory: maximal amplitude is over the resolution') 
 
 
 			if self.debug_mode and self.debug_mode_plot_waveforms:
-				print('plot of sinsin mode 1')
-				fig = plt.figure(figsize=(8,5))
-				plt.plot(time_vec,wavepoints1)
+
+				fig = plt.figure(figsize=(18,5))
+				plt.plot(np.array(range(len(wavepoints1)))/2000,wavepoints1/(2**13))
 				plt.grid()
+				plt.title('LUT for DAC pulse \"'+pulse_label+'\" sin1',fontsize = 18)
+				# plt.legend(fontsize = 14)
 				plt.show()
-				print('plot of sinsin mode 2')
-				fig = plt.figure(figsize=(8,5))
-				plt.plot(time_vec,wavepoints2)
+
+				fig = plt.figure(figsize=(18,5))
+				plt.plot(np.array(range(len(wavepoints2)))/2000,wavepoints2/(2**13))
 				plt.grid()
+				plt.title('LUT for DAC pulse \"'+pulse_label+' sin2\"',fontsize = 18)
+				# plt.legend(fontsize = 14)
 				plt.show()
-				print('plot of sinsin mode total')
-				fig = plt.figure(figsize=(8,5))
-				plt.plot(time_vec,wavepoints)
+
+				fig = plt.figure(figsize=(18,5))
+				plt.plot(np.array(range(len(wavepoints)))/2000,wavepoints/(2**13))
 				plt.grid()
+				plt.title('LUT for DAC pulse \"'+pulse_label+' total\"',fontsize = 18)
+				# plt.legend(fontsize = 14)
 				plt.show()
 
 
-			if mode == 'DAC':
+			if module == 'DAC':
 
 				# --- When using 'DAC' every 8 points you insert trigger bits that define the trigger states 
 
@@ -1661,26 +1689,27 @@ class RFSoC(VisaInstrument):
 
 
 
-		elif function == 'sin':
+		elif mode == 'sin':
 
 			wavepoints = ((2**13)*self.DAC_amplitude_calib[ch-1]*param['dc_offset'] - 1) + ((2**13)*self.DAC_amplitude_calib[ch-1]*param['amp'] - 1)*np.sin(-param['phase_offset'] + 2*np.pi*param['freq']*1e6*time_vec)
 
 			idx_of = np.nonzero(((wavepoints > 8191) | (wavepoints < -8192)))[0]
 			if len(np.nonzero(wavepoints[idx_of] != 16381)[0])>0:
-				if mode =='DAC':
+				if module =='DAC':
 					log.error('Error when filling the DAC memory: maximal amplitude is over the resolution') 
-				elif mode == 'ADC':
+				elif module == 'ADC':
 					log.error('Error when filling the ADC memory: maximal amplitude is over the resolution') 
 
-			if self.debug_mode and self.debug_mode_plot_waveforms:
-				print('plot of sin mode')
-				fig = plt.figure(figsize=(8,5))
-				plt.plot(time_vec*1e9,wavepoints)
+			if self.debug_mode:
+				
+				fig = plt.figure(figsize=(18,5))
+				plt.plot(np.array(range(len(wavepoints)))/2000,wavepoints/(2**13))
 				plt.grid()
-				plt.legend(fontsize = 14)
+				plt.title('LUT for DAC pulse \"'+pulse_label+'\"',fontsize = 18)
+				# plt.legend(fontsize = 14)
 				plt.show()
 
-			if mode == 'DAC':
+			if module == 'DAC':
 
 				# adding zeros to make length multiple of 8
 				wavepoints = np.append(wavepoints,np.zeros(len(time_vec)%8))
@@ -1700,7 +1729,7 @@ class RFSoC(VisaInstrument):
 
 
 
-		elif function == 'trigger':
+		elif mode == 'trigger':
 
 			wavepoints = np.zeros_like(time_vec) # only zeros
 
@@ -1722,7 +1751,7 @@ class RFSoC(VisaInstrument):
 			wavepoints = np.append(wavepoints,stop_vector)
 
 
-		elif function == 'DC':
+		elif mode == 'DC':
 
 			amplitude = (2**13)*self.DAC_amplitude_calib[ch-1]*param['amp']
 
@@ -1765,13 +1794,13 @@ class RFSoC(VisaInstrument):
 
 		else:
 
-			log.error('Wrong waveform mode: ',function)
+			log.error('Wrong waveform mode: ',mode)
 
 
 		if len(wavepoints) > 128000: 
-			if mode == 'DAC':
+			if module == 'DAC':
 				log.error('Error when filling the DAC memory : to many points, maximal number is 128000 while you are asking for %i'%len(wavepoints))
-			if mode == 'ADC':
+			if module == 'ADC':
 				log.error('Error when filling the ADC memory : to many points, maximal number is 128000 while you are asking for %i'%len(wavepoints))
 
 		return wavepoints
