@@ -1161,44 +1161,42 @@ class RFSoC(VisaInstrument):
 
 
 
-		# ---  If a repetitions is used it check the number of pulses per repetitions
-		nb_pulses_dac = np.zeros(8)
-		nb_pulses_adc = np.zeros(8)
-		pulses_counter_dac = np.ones(8)
-		pulses_counter_adc = np.ones(8)
+		# # ---  If a repetitions is used it check the number of pulses per repetitions
+		# nb_pulses_dac = np.zeros(8)
+		# nb_pulses_adc = np.zeros(8)
+		# pulses_counter_dac = np.ones(8)
+		# pulses_counter_adc = np.ones(8)
 
-		pulses_rep_all = pulses_df.loc[(pulses_df['rep_nb']>1) & (pulses_df['mode']!='wait')]
-		pulses_rep_dac = pulses_rep_all.loc[(pulses_rep_all['module']=='DAC')]
-		pulses_rep_adc = pulses_rep_all.loc[(pulses_rep_all['module']=='ADC')]
+		# pulses_rep_all = pulses_df.loc[(pulses_df['rep_nb']>1) & (pulses_df['mode']!='wait')]
+		# pulses_rep_dac = pulses_rep_all.loc[(pulses_rep_all['module']=='DAC')]
+		# pulses_rep_adc = pulses_rep_all.loc[(pulses_rep_all['module']=='ADC')]
 
-		# count the pulses number per dac 
+		# # count the pulses number per dac 
 
-		if len(pulses_rep_dac)>0:
-			for index, row in pulses_rep_dac.iterrows():
-				ch_num = int(row['ch_num'])
-				nb_pulses_dac[ch_num - 1] +=1 
+		# if len(pulses_rep_dac)>0:
 
-		# same for the adc 
+		# 	for index, row in pulses_rep_dac.iterrows():
 
-		if len(pulses_rep_adc)>0:
-			for index, row in pulses_rep_adc.iterrows():
-				ch_demod = row['ch_demod']
-				for chd in ch_demod: 
-					nb_pulses_adc[chd - 1] +=1
+		# 		ch_num = int(row['ch_num'])
+		# 		nb_pulses_dac[ch_num - 1] +=1 
+
+		# # same for the adc 
+
+		# if len(pulses_rep_adc)>0:
+		# 	for index, row in pulses_rep_adc.iterrows():
+		# 		ch_demod = row['ch_demod']
+		# 		for chd in ch_demod: 
+		# 			nb_pulses_adc[chd - 1] +=1
 		
-		# --- Start of the sequence filling 
+		# # --- Start of the sequence filling 
 
 		if self.debug_mode:
-			print('*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*')
-			print('*-*-*-*-*-*-*-* Beggining of sequence *-*-*-*-*-*-*-*-*-*-*')
-			print('*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*')
-			print('Events detected at: ',event_time_list)
-			print('Found the following pulses:')
+
+			print('\n\n\n------------------------------- Generating the sequence commands ----------------------------------\n')
 			display(pulses_df.sort_values('start'))
-			rep_nb = np.max(pulses_df['rep_nb'])
-			print('They will all be played a first time and then the pulses with rep_nb=%i will be played %i times' %(rep_nb, rep_nb))
 
 		for event_time in event_time_list:
+
 			if event_time>0:
 
 				# add a waiting time any time it is needed 
@@ -1207,9 +1205,10 @@ class RFSoC(VisaInstrument):
 				global_sequence = np.append(global_sequence, wait_time)
 
 				if self.debug_mode:
-					print('adding wait till this event')
-					print(1,int(round((event_time-event_time_prev)*250)))
 
+					print('adding wait till the event at ' + str(event_time))
+					print('Seq instruction : ',1,int(round((event_time-event_time_prev)*250)))
+					print()
 
 			event_time_prev = event_time
 
@@ -1217,44 +1216,36 @@ class RFSoC(VisaInstrument):
 			tmp_df = pulses_df.loc[pulses_df['start'] == event_time]
 			tmp_df = tmp_df.sort_values(by='module', ascending=False)
 
-			for index, row in tmp_df.iterrows():
+			if self.debug_mode:
 
-				if self.debug_mode:
-					print('_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _')
-					print(event_time,row['mode'], row['label'])
-					print('_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _')
+					print('Creating sequence entry for events at ' + str(event_time))
+					display(tmp_df)
+
+			for index, row in tmp_df.iterrows():
 
 				ch_num = int(row['ch_num'])
 
-
 				if row['module'] == 'DAC':
 
-					if row['rep_nb']!=1 and not(rep_started):
-						# add the command indicating the start of the loop if needed
-						global_sequence = np.append(global_sequence, 257)
-						global_sequence = np.append(global_sequence, row['rep_nb'] - 1)
-						rep_started = not(rep_started) # triggers the loop start
-
-						if self.debug_mode:
-							print('- - - - - - - LOOP START - - - - - - - - -')
-
-
-					if not(np.isnan(row['start_pointer'])):
-						# if there is a start pointer it must be a pulse 
+					if row['mode'] != 'wait':
 
 						# set the starting pointer to the correct address 
 						global_sequence = np.append(global_sequence,4096+ch_num)
-						global_sequence = np.append(global_sequence,DAC_pulses_pointer[ch_num-1][pointer_dac[ch_num - 1]])
+						global_sequence = np.append(global_sequence,DAC_pulses_pointer[ch_num-1][pointer_dac[ch_num-1]])
 
 						if self.debug_mode:
-							print('adding sequencer command to point to address of this pulse')
-							print(4096+ch_num,DAC_pulses_pointer[ch_num-1][pointer_dac[ch_num - 1]])
 
+							print('Adding sequencer command to point to address of \"' + row['label'] + '\"')
+							print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+							print()
 
 						# the corresponding DAC is set to ON
 						DAC_state[7-(ch_num-1)] = 1
+
 						if self.debug_mode:
+
 							print('DAC state is :', DAC_state)
+							print()
 
 
 						# the pointer index of the given channel is updated or not depending on the situation
@@ -1268,50 +1259,41 @@ class RFSoC(VisaInstrument):
 								pulses_counter_dac[ch_num - 1] +=1 
 
 								if self.debug_mode:
+
 									print('Pointer shifted to %i'%pointer_dac[ch_num - 1])
 									print('Pulse counter shifted to %i'%pulses_counter_dac[ch_num - 1])
 
 
 					if row['mode'] == 'wait':
+
 						# we switch off the corresponding DAC, the waiting command is set at the next iteration
-						DAC_state[7-(ch_num-1)] = 0
+						DAC_state[(ch_num-1)] = 0
+
 						if self.debug_mode:
+
 							print('DAC state is :', DAC_state)
 
 
 				if row['module'] == 'ADC':
-
-					if self.debug_mode:
-						print(row['mode'])
-
 
 					# initialization of the ADC to ADC LUT connection for this step
 					mux_step = ['000', '000', '000', '000']
 
 					ch_demod = row['ch_demod']
 
-					if row['rep_nb']!=1 and not(rep_started):
-
-						# add the command indicating the start of the loop if needed
-						global_sequence = np.append(global_sequence, 257)
-						global_sequence = np.append(global_sequence, row['rep_nb'] - 1)
-
-						rep_started = not(rep_started)
-
-						if self.debug_mode:
-							print('- - - - - - - LOOP START - - - - - - - - -')
-
 					if self.debug_mode:
-						print(mux_state)
 
+						print(mux_state)
 
 					if row['mode'] != 'wait':
 
 						# --- Update the ADC to ADC LUT connection
 
 						for k in ch_demod:
+
 							# check that the given ADC is not ON, if not no change in the routing
 							if ch_num == 1 and ADC_state[7-(ch_num-1)] == 0:
+
 								# check that the given ADC LUT is not already used  
 								if k ==1 and np.sum(mux_state[:, 0])==0:
 									mux_step[0] = '000' # binary corresponding to the routing
@@ -1326,7 +1308,9 @@ class RFSoC(VisaInstrument):
 									mux_step[3] ='010'
 									mux_state[ch_num-1, 3] = 1
 								else: log.error('Incompatible mixing tables for ch%i'%ch_num)
+
 							elif ch_num == 2 and ADC_state[7-(ch_num-1)] == 0:
+								
 								if k ==1 and np.sum(mux_state[:, 0])==0:
 									mux_step[0]='001'
 									mux_state[ch_num-1, 0] = 1
@@ -1482,6 +1466,7 @@ class RFSoC(VisaInstrument):
 			if DAC_state != DAC_state_prev or ADC_state != ADC_state_prev:
 
 				if self.debug_mode:
+
 					print('ADC state updated from %s to %s'%(ADC_state_prev, ADC_state))
 					print('DAC state updated from %s to %s'%(DAC_state_prev, DAC_state))
 
@@ -1491,41 +1476,52 @@ class RFSoC(VisaInstrument):
 				bin_dac_cmd = ''
 
 				# update the DAC state
-				for i in range(8):
+				for i in reversed(range(8)):
+
 					if DAC_state[i] != DAC_state_prev[i]:
+
 						if DAC_state[i] == 1:
+
 							bin_dac_cmd += '011'
 							DAC_state_prev[i] = 1
+
 						else:
+
 							bin_dac_cmd += '001'
 							DAC_state_prev[i] = 0
+
 					else:
+
 						bin_dac_cmd +='000'
 
 				# add the two bit strings and add the command to update states 
 				bin_trig_cmd = bin_adc_cmd + bin_dac_cmd
+
 				global_sequence = np.append(global_sequence,4096)
 				global_sequence = np.append(global_sequence,int(bin_trig_cmd,2))
 
 				ADC_state_prev = ADC_state.copy()
 
 				if self.debug_mode:
-					print('Bit string of the DAC state:')
-					print(bin_dac_cmd)
-					print('Bit string of the ADC state')
-					print(bin_adc_cmd)
-					print('The command is: ')
-					print(4096, int(bin_trig_cmd,2))
+
+					print('Bit string of the DAC state: ',bin_dac_cmd)
+					print('Bit string of the ADC state: ',bin_adc_cmd)
+					print()
+					print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+					print()
 
 			else :
+
 				if self.debug_mode:
+
 					print('No ADC or DAC update at this state')
 					print('ADC previous: %s  / ADC step : %s'%(ADC_state_prev, ADC_state))
 					print('DAC previous: %s  / DAC step : %s'%(DAC_state_prev, DAC_state))
+					print()
 
 
 
-		# --- Add a last waiting time if needing 
+		# --- Add a last waiting time if needed
 
 		wait_term = int(round((termination_time - event_time)*250))-1
 		global_sequence = np.append(global_sequence,1)
