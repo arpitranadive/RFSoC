@@ -1145,6 +1145,7 @@ class RFSoC(VisaInstrument):
 		# --- Charging the pulse sequence and the event list
 
 		pulses_df = self.pulses_sequence()
+		seq_looping = self.seq_looping
 		event_time_list = list(dict.fromkeys(pulses_df['start']))
 		event_time_list.sort()
 		# termination time used to close the sequence 
@@ -1372,7 +1373,7 @@ class RFSoC(VisaInstrument):
 									else:
 
 										mux_b31 = '0'
-										mux_b30_b29 = bin(mux_config_for_ch[k])[2:].zfill(2)
+										mux_b30_b29 = bin(int(mux_config_for_ch[k]))[2:].zfill(2)
 										mux_b28 = '1'
 
 									mux_b27_to_b14 = '0'*14
@@ -1399,8 +1400,8 @@ class RFSoC(VisaInstrument):
 										print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
 										print()
 
-								# the pointer index of the given channel is updated or not depending on the situation
-								pointer_adc[k] += 1
+									# the pointer index of the given channel is updated or not depending on the situation
+									pointer_adc[k] += 1
 
 					elif row['mode'] == 'wait':
 
@@ -1488,7 +1489,7 @@ class RFSoC(VisaInstrument):
 
 		# Switch off all the DAC/ADC 
 		global_sequence = np.append(global_sequence,4096)
-		global_sequence = np.append(global_sequence,0)
+		global_sequence = np.append(global_sequence,int('00000000001001001001001001001001',2))
 
 		global_sequence_info.append('Reached end - switch off all the DAC/ADC')
 
@@ -1636,7 +1637,7 @@ class RFSoC(VisaInstrument):
 				wavepoints = wavepoints.reshape(1,len(wavepoints)*len(wavepoints[0]))
 
 				wavepoints =  wavepoints[0]
-				wavepoints = np.append(wavepoints,stop_vector)
+				# wavepoints = np.append(wavepoints,stop_vector)
 
 				
 
@@ -1677,7 +1678,7 @@ class RFSoC(VisaInstrument):
 				wavepoints = wavepoints.reshape(1,len(wavepoints)*len(wavepoints[0]))
 
 				wavepoints =  wavepoints[0]
-				wavepoints = np.append(wavepoints,stop_vector)
+				# wavepoints = np.append(wavepoints,stop_vector)
 
 
 
@@ -1838,6 +1839,7 @@ class RFSoC(VisaInstrument):
 		if self.debug_mode:
 			len_data_all = 0
 		#print(length_vec)
+		n_pulses = int(len(ch_vec)/len(np.unique(ch_vec))) # will need updating for general case
 		# n_pulses = len(length_vec[0]) # to be discussed with Arpit
 
 
@@ -1856,7 +1858,6 @@ class RFSoC(VisaInstrument):
 
 				self.display_IQ_progress_bar = IntProgress(min=0, max=n_rep) # instantiate the bar
 				display(self.display_IQ_progress_bar) # display the bar
-
 
 			self.write("SEQ:STOP")
 			time.sleep(0.1)
@@ -1880,8 +1881,6 @@ class RFSoC(VisaInstrument):
 						if len(r)>1:
 							len_data_all +=len(r)
 						# print(len_data_all)
-
-
 
 					if self.loop_time: 
 						b = datetime.datetime.now()
@@ -1940,7 +1939,6 @@ class RFSoC(VisaInstrument):
 						self.write("SEQ:START")
 						time.sleep(0.1)
 						continue
-
 
 				if count_meas//(16*N_adc_events) == n_rep:
 
@@ -2008,41 +2006,41 @@ class RFSoC(VisaInstrument):
 
 			# --- may be adapted for more advanced data shaping 
 
-			# I = [((I_all_data*ch_1)[I_all_data*ch_1!=0]-2).reshape(n_rep*ch_active[0],n_pulses).T,
-			#      ((I_all_data*ch_2)[I_all_data*ch_2!=0]-2).reshape(n_rep*ch_active[1],n_pulses).T,
-			#      ((I_all_data*ch_3)[I_all_data*ch_3!=0]-2).reshape(n_rep*ch_active[2],n_pulses).T,
-			#      ((I_all_data*ch_4)[I_all_data*ch_4!=0]-2).reshape(n_rep*ch_active[3],n_pulses).T,
-			#      ((I_all_data*ch_5)[I_all_data*ch_5!=0]-2).reshape(n_rep*ch_active[4],n_pulses).T,
-			#      ((I_all_data*ch_6)[I_all_data*ch_6!=0]-2).reshape(n_rep*ch_active[5],n_pulses).T,
-			#      ((I_all_data*ch_7)[I_all_data*ch_7!=0]-2).reshape(n_rep*ch_active[6],n_pulses).T,
-			#      ((I_all_data*ch_8)[I_all_data*ch_8!=0]-2).reshape(n_rep*ch_active[7],n_pulses).T]
-			# Q = [((Q_all_data*ch_1)[Q_all_data*ch_1!=0]-2).reshape(n_rep*ch_active[0],n_pulses).T,
-			#      ((Q_all_data*ch_2)[Q_all_data*ch_2!=0]-2).reshape(n_rep*ch_active[1],n_pulses).T,
-			#      ((Q_all_data*ch_3)[Q_all_data*ch_3!=0]-2).reshape(n_rep*ch_active[2],n_pulses).T,
-			#      ((Q_all_data*ch_4)[Q_all_data*ch_4!=0]-2).reshape(n_rep*ch_active[3],n_pulses).T,
-			#      ((Q_all_data*ch_5)[Q_all_data*ch_5!=0]-2).reshape(n_rep*ch_active[4],n_pulses).T,
-			#      ((Q_all_data*ch_6)[Q_all_data*ch_6!=0]-2).reshape(n_rep*ch_active[5],n_pulses).T,
-			#      ((Q_all_data*ch_7)[Q_all_data*ch_7!=0]-2).reshape(n_rep*ch_active[6],n_pulses).T,
-			#      ((Q_all_data*ch_8)[Q_all_data*ch_8!=0]-2).reshape(n_rep*ch_active[7],n_pulses).T]
+			I = [((I_all_data*ch_1)[I_all_data*ch_1!=0]-2).reshape(n_rep*ch_active[0],n_pulses).T,
+			     ((I_all_data*ch_2)[I_all_data*ch_2!=0]-2).reshape(n_rep*ch_active[1],n_pulses).T,
+			     ((I_all_data*ch_3)[I_all_data*ch_3!=0]-2).reshape(n_rep*ch_active[2],n_pulses).T,
+			     ((I_all_data*ch_4)[I_all_data*ch_4!=0]-2).reshape(n_rep*ch_active[3],n_pulses).T,
+			     ((I_all_data*ch_5)[I_all_data*ch_5!=0]-2).reshape(n_rep*ch_active[4],n_pulses).T,
+			     ((I_all_data*ch_6)[I_all_data*ch_6!=0]-2).reshape(n_rep*ch_active[5],n_pulses).T,
+			     ((I_all_data*ch_7)[I_all_data*ch_7!=0]-2).reshape(n_rep*ch_active[6],n_pulses).T,
+			     ((I_all_data*ch_8)[I_all_data*ch_8!=0]-2).reshape(n_rep*ch_active[7],n_pulses).T]
+			Q = [((Q_all_data*ch_1)[Q_all_data*ch_1!=0]-2).reshape(n_rep*ch_active[0],n_pulses).T,
+			     ((Q_all_data*ch_2)[Q_all_data*ch_2!=0]-2).reshape(n_rep*ch_active[1],n_pulses).T,
+			     ((Q_all_data*ch_3)[Q_all_data*ch_3!=0]-2).reshape(n_rep*ch_active[2],n_pulses).T,
+			     ((Q_all_data*ch_4)[Q_all_data*ch_4!=0]-2).reshape(n_rep*ch_active[3],n_pulses).T,
+			     ((Q_all_data*ch_5)[Q_all_data*ch_5!=0]-2).reshape(n_rep*ch_active[4],n_pulses).T,
+			     ((Q_all_data*ch_6)[Q_all_data*ch_6!=0]-2).reshape(n_rep*ch_active[5],n_pulses).T,
+			     ((Q_all_data*ch_7)[Q_all_data*ch_7!=0]-2).reshape(n_rep*ch_active[6],n_pulses).T,
+			     ((Q_all_data*ch_8)[Q_all_data*ch_8!=0]-2).reshape(n_rep*ch_active[7],n_pulses).T]
 
 
 
-			I = [((I_all_data*ch_1)[I_all_data*ch_1!=0]-2),
-				 ((I_all_data*ch_2)[I_all_data*ch_2!=0]-2),
-				 ((I_all_data*ch_3)[I_all_data*ch_3!=0]-2),
-				 ((I_all_data*ch_4)[I_all_data*ch_4!=0]-2),
-				 ((I_all_data*ch_5)[I_all_data*ch_5!=0]-2),
-				 ((I_all_data*ch_6)[I_all_data*ch_6!=0]-2),
-				 ((I_all_data*ch_7)[I_all_data*ch_7!=0]-2),
-				 ((I_all_data*ch_8)[I_all_data*ch_8!=0]-2)]
-			Q = [((Q_all_data*ch_1)[Q_all_data*ch_1!=0]-2),
-				 ((Q_all_data*ch_2)[Q_all_data*ch_2!=0]-2),
-				 ((Q_all_data*ch_3)[Q_all_data*ch_3!=0]-2),
-				 ((Q_all_data*ch_4)[Q_all_data*ch_4!=0]-2),
-				 ((Q_all_data*ch_5)[Q_all_data*ch_5!=0]-2),
-				 ((Q_all_data*ch_6)[Q_all_data*ch_6!=0]-2),
-				 ((Q_all_data*ch_7)[Q_all_data*ch_7!=0]-2),
-				 ((Q_all_data*ch_8)[Q_all_data*ch_8!=0]-2)]
+			# I = [((I_all_data*ch_1)[I_all_data*ch_1!=0]-2),
+			# 	 ((I_all_data*ch_2)[I_all_data*ch_2!=0]-2),
+			# 	 ((I_all_data*ch_3)[I_all_data*ch_3!=0]-2),
+			# 	 ((I_all_data*ch_4)[I_all_data*ch_4!=0]-2),
+			# 	 ((I_all_data*ch_5)[I_all_data*ch_5!=0]-2),
+			# 	 ((I_all_data*ch_6)[I_all_data*ch_6!=0]-2),
+			# 	 ((I_all_data*ch_7)[I_all_data*ch_7!=0]-2),
+			# 	 ((I_all_data*ch_8)[I_all_data*ch_8!=0]-2)]
+			# Q = [((Q_all_data*ch_1)[Q_all_data*ch_1!=0]-2),
+			# 	 ((Q_all_data*ch_2)[Q_all_data*ch_2!=0]-2),
+			# 	 ((Q_all_data*ch_3)[Q_all_data*ch_3!=0]-2),
+			# 	 ((Q_all_data*ch_4)[Q_all_data*ch_4!=0]-2),
+			# 	 ((Q_all_data*ch_5)[Q_all_data*ch_5!=0]-2),
+			# 	 ((Q_all_data*ch_6)[Q_all_data*ch_6!=0]-2),
+			# 	 ((Q_all_data*ch_7)[Q_all_data*ch_7!=0]-2),
+			# 	 ((Q_all_data*ch_8)[Q_all_data*ch_8!=0]-2)]
 
 		elif mode == 'RAW':
 
