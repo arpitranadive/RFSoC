@@ -29,6 +29,7 @@ from qcodes.instrument.parameter import ParameterWithSetpoints, Parameter
 from qcodes.utils.delaykeyboardinterrupt import DelayedKeyboardInterrupt
 from qcodes.utils.validators import Numbers, Arrays
 
+from pprint import pprint
 import plotly.express as px
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
@@ -332,7 +333,10 @@ class RFSoC(VisaInstrument):
 		self.seq_looping = pd.DataFrame()
 		self.ADC_ch_active = np.zeros(8)
 		self.length_vec = [[],[],[],[],[],[],[],[]]
-		self.ch_vec = []
+		self.ADC_events = np.array([])
+		self.global_sequence_str = ''
+		self.global_sequence = []
+		self.global_sequence_info = []
 
 		self.display_sequence = True
 		self.display_IQ_progress = True
@@ -342,6 +346,12 @@ class RFSoC(VisaInstrument):
 		self.loop_time = False
 
 		self.global_loop = (False,0) 
+		self.n_points_total = 0
+
+		self._mux_config_matrix = np.array([[0,1,2,2],
+											[1,0,3,3],
+										['x','x',0,1],
+										['x','x',1,0]])
 
 		self.raw_dump_location = "C:/Data_tmp"
 
@@ -481,9 +491,15 @@ class RFSoC(VisaInstrument):
 
 			log.error('Duplicate Labels: Labels need to be unique for consistent identification of pulse hierarchy.')
 
-		if len(set(seq_looping['label'])) < len(seq_looping['label']):
+		try:
 
-			log.error('Duplicate Labels: Labels need to be unique for consistent identification of looping hierarchy.')
+			if len(set(seq_looping['label'])) < len(seq_looping['label']):
+
+				log.error('Duplicate Labels: Labels need to be unique for consistent identification of looping hierarchy.')
+
+		except:
+
+			log.info('No looping programmed.')
 
 		# --- check pulse timing compatibility with RFSoC timing constrains 
 
@@ -547,7 +563,6 @@ class RFSoC(VisaInstrument):
 		time_ADC = [0,0,0,0,0,0,0,0]
 		time_DAC = [0,0,0,0,0,0,0,0]
 		length_vec = [[],[],[],[],[],[],[],[]]
-		ch_vec = []
 		# color of the displayed pulses with n_rep=1
 		color_dict = {}
 		wait_color = int("D3D3D3", 16)
@@ -562,6 +577,8 @@ class RFSoC(VisaInstrument):
 		wait_count = 0 # counter used to label the wait 
 		termination_time = 0 # keep track of the latest event
 		ch_demod = None # either or not the ADC LUT will be used during the sequence
+
+		self.ADC_events = np.array([])
 
 
 		# --- Beginning of the treatment (loops)
@@ -707,6 +724,7 @@ class RFSoC(VisaInstrument):
 
 			pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module, Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,start_pointer=start_pointer, LUT=LUT, ch_demod=ch_demod)])], ignore_index=True)
 
+			self.ADC_events = np.append(self.ADC_events,ch_demod)
 
 			time_ADC[int(row['channel'])-1] = stop
 
@@ -801,7 +819,6 @@ class RFSoC(VisaInstrument):
 
 		# store the length of the pulses and the channel used, it is use for data shaping in get_readout_pulse()
 		self.length_vec = length_vec
-		self.ch_vec = ch_vec
 
 
 		return pulses_fin
@@ -1134,12 +1151,10 @@ class RFSoC(VisaInstrument):
 		termination_time = np.max((np.array(list(pulses_df['stop']))))
 
 		# --- Initialization of the parameters
-
-
-		# n_points_total is the total number of acquisitions
-		self.n_points_total = 0
+		
 		# array containing the instructions played by the sequencer
 		global_sequence = np.array([])
+		global_sequence_info = []
 		# load the pointer
 		DAC_pulses_pointer, ADC_pulses_pointer = self.LUT_and_adress_filling(pulses_df)
 
@@ -1151,9 +1166,12 @@ class RFSoC(VisaInstrument):
 		DAC_state_prev = [0,0,0,0,0,0,0,0]
 		self.ADC_ch_active = np.array([0,0,0,0,0,0,0,0])
 
+		# map for LUT ADC
+		LUT_ADC_map = np.array(np.identity(4))*0
+
 		# lists storing the ADC/DAC pointer index 
 		pointer_dac = [0,0,0,0,0,0,0,0]
-		pointer_adc = [0,0,0,0]
+		pointer_adc = [0,0,0,0,0,0,0,0]
 		# boolean checking if the repetition started
 		rep_started = False
 		# array used to store with physical ADC is send to which ADC LUT
@@ -1204,10 +1222,12 @@ class RFSoC(VisaInstrument):
 				wait_time = int(round((event_time-event_time_prev)*250) - 1)
 				global_sequence = np.append(global_sequence, wait_time)
 
+				global_sequence_info.append('adding wait till the event at ' + str(event_time))
+
 				if self.debug_mode:
 
-					print('adding wait till the event at ' + str(event_time))
-					print('Seq instruction : ',1,int(round((event_time-event_time_prev)*250)))
+					print(global_sequence_info[-1])
+					print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
 					print()
 
 			event_time_prev = event_time
@@ -1233,36 +1253,23 @@ class RFSoC(VisaInstrument):
 						global_sequence = np.append(global_sequence,4096+ch_num)
 						global_sequence = np.append(global_sequence,DAC_pulses_pointer[ch_num-1][pointer_dac[ch_num-1]])
 
+						global_sequence_info.append('Adding sequencer command to point to address of \"' + row['label'] + '\"')
+
+						pointer_dac[ch_num-1] += 1
+
 						if self.debug_mode:
 
-							print('Adding sequencer command to point to address of \"' + row['label'] + '\"')
+							print(global_sequence_info[-1])
 							print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
 							print()
 
 						# the corresponding DAC is set to ON
-						DAC_state[7-(ch_num-1)] = 1
+						DAC_state[(ch_num-1)] = 1
 
 						if self.debug_mode:
 
 							print('DAC state is :', DAC_state)
 							print()
-
-
-						# the pointer index of the given channel is updated or not depending on the situation
-						if not(rep_started):
-							pointer_dac[ch_num - 1] +=1
-							if self.debug_mode:
-								print('Pointer shifted to %i'%pointer_dac[ch_num - 1])
-						else: 
-							while pulses_counter_dac[ch_num - 1]<nb_pulses_dac[ch_num - 1]:
-								pointer_dac[ch_num - 1] +=1
-								pulses_counter_dac[ch_num - 1] +=1 
-
-								if self.debug_mode:
-
-									print('Pointer shifted to %i'%pointer_dac[ch_num - 1])
-									print('Pulse counter shifted to %i'%pulses_counter_dac[ch_num - 1])
-
 
 					if row['mode'] == 'wait':
 
@@ -1276,190 +1283,133 @@ class RFSoC(VisaInstrument):
 
 				if row['module'] == 'ADC':
 
-					# initialization of the ADC to ADC LUT connection for this step
-					mux_step = ['000', '000', '000', '000']
-
 					ch_demod = row['ch_demod']
+					ADC_ch = int(row['ch_num'])
+					LUT_ADC_map_prev = LUT_ADC_map.copy()
 
 					if self.debug_mode:
 
-						print(mux_state)
+						print('ADC 1-4 LUT Map : ')
+						pprint(LUT_ADC_map)
 
 					if row['mode'] != 'wait':
 
+						# change the ADC to ON 
+
+						ADC_state[ADC_ch-1] = 1
+
+						if self.debug_mode:
+
+							print('ADC state is :', ADC_state)
+							print()
+
+						# add the number of points the ADC LUT should take 
+						global_sequence = np.append(global_sequence,4106 + ADC_ch)
+						global_sequence = np.append(global_sequence,int(row['time']*1e-6*self.sampling_rate))
+
+						global_sequence_info.append('Adding sequencer command to set number of acquisition points to ' + str(int(row['time']*1e-6*self.sampling_rate)))
+
+						if self.debug_mode:
+
+							print(global_sequence_info[-1])
+							print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+							print()
+
 						# --- Update the ADC to ADC LUT connection
 
-						for k in ch_demod:
+						for k in list(map(int,ch_demod)):
 
-							# check that the given ADC is not ON, if not no change in the routing
-							if ch_num == 1 and ADC_state[7-(ch_num-1)] == 0:
+							LUT_ADC_map[ADC_ch-1][k-1] = 1
 
-								# check that the given ADC LUT is not already used  
-								if k ==1 and np.sum(mux_state[:, 0])==0:
-									mux_step[0] = '000' # binary corresponding to the routing
-									mux_state[ch_num-1, 0] = 1 # indicate that the ADC LUT is used 
-								elif k ==2 and np.sum(mux_state[:, 1])==0:
-									mux_step[1] = '001'
-									mux_state[ch_num-1, 1] = 1
-								elif k ==3 and np.sum(mux_state[:, 2])==0:
-									mux_step[2] ='010'
-									mux_state[ch_num-1, 2] = 1
-								elif k ==4 and np.sum(mux_state[:, 3])==0:
-									mux_step[3] ='010'
-									mux_state[ch_num-1, 3] = 1
-								else: log.error('Incompatible mixing tables for ch%i'%ch_num)
+						# --- test validity of ADC map
 
-							elif ch_num == 2 and ADC_state[7-(ch_num-1)] == 0:
-								
-								if k ==1 and np.sum(mux_state[:, 0])==0:
-									mux_step[0]='001'
-									mux_state[ch_num-1, 0] = 1
-								elif k ==2 and np.sum(mux_state[:, 1])==0:
-									mux_step[1] = '000'
-									mux_state[ch_num-1, 1] = 1
-								elif k ==3 and np.sum(mux_state[:, 2])==0:
-									mux_step[2] ='011'
-									mux_state[ch_num-1, 2] = 1
-								elif k ==4 and np.sum(mux_state[:, 3])==0:
-									mux_step[3] ='011'
-									mux_state[ch_num-1, 3] = 1
-								else: log.error('Incompatible mixing tables ch%i'%ch_num)
-							elif ch_num ==3  and ADC_state[7-(ch_num-1)] == 0:
-								if k ==1 : log.error('Incompatible mixing tables')
-								elif k ==2 : log.error('Incompatible mixing tables')
-								elif k ==3 and np.sum(mux_state[:, 2])==0:
-								 mux_step[2] = '000'
-								 mux_state[ch_num-1, 2] = 1
-								elif k ==4 and np.sum(mux_state[:, 3]):
-								 mux_step[3] ='001'
-								 mux_state[ch_num-1, 3] = 1
-								else: log.error('Incompatible mixing tables ch%i'%ch_num)
-							elif ch_num ==4 and ADC_state[7-(ch_num-1)] == 0:
-								if k ==1 : log.error('Incompatible mixing tables')
-								elif k ==2 : log.error('Incompatible mixing tables')
-								elif k ==3 and np.sum(mux_state[:, 2])==0:
-								 mux_step[2] ='001'
-								 mux_state[ch_num-1, 2] = 1
-								elif k ==4 and np.sum(mux_state[:, 3])==0:
-								 mux_step[3] = '000'
-								 mux_state[ch_num-1, 3] = 1
-								else: log.error('Incompatible mixing tables ch%i'%ch_num)
+						mux_state = np.sum(LUT_ADC_map, axis=0)
+						mux_state_valid = True
 
-							else:
-								log.error('Cannot use other channels than 1, 2, 3 or 4 for the IQ_table mode')
+						for k in range(len(mux_state)):
 
-							if self.debug_mode:
-								print('The Mux state:')
-								print(mux_state)
-								print('The Mux table:')
-								print(mux_step)
+							if mux_state[i]>1:
+
+								mux_state_valid = False
+								log.error('mux state validity issue, are you trying to use one mixer for multiple demods?')
+
+						for k in range(2,4):
+
+							for l in range(0,2):
+
+								if LUT_ADC_map[k,l] != 0:
+
+									mux_state_valid = False
+									log.error('mux state validity issue, invalid channel mixing!')
+
+						if self.debug_mode:
+
+							print('Updated ADC 1-4 LUT Map : ')
+							pprint(LUT_ADC_map)
+							print('mux state validity registered as: ' + str(mux_state_valid))
 
 
 						# --- Sequence filling for ADC type command
+						if mux_state_valid and not(np.array_equal(LUT_ADC_map_prev,LUT_ADC_map)):
 
-						for idx, chd in enumerate(ch_demod):
+							mux_config_for_ch = self._mux_config_matrix[ADC_ch-1]
 
+							for k in range(4):
 
-							#  --- creation of the bit string storing the mixer state and the start pointer 
-							bin_cmd = mux_step[chd - 1] # mixer routing
-							bin_cmd += '1' # set the mixer to ON
-							bin_cmd += '00000000000000'# used bit
+								chd = k+1
 
-							# convert the pointer postition in binary 
-							bin_start = bin(ADC_pulses_pointer[chd - 1][0][pointer_adc[chd - 1]])[2:]
+								if LUT_ADC_map[ADC_ch-1][k] == 1:
 
-							# fill the unused bits 
-							len_bit_start = len(bin_start)
-							bin_start_add = [0] * (14 - len_bit_start)
-							bin_start_add = str(bin_start_add)[1:-1].replace(', ', '')
+									param_id_1 = 4128 + 2*k
+									param_id_2 = 4129 + 2*k
 
-							# add the two bit staring
-							bin_cmd += bin_start_add
-							bin_cmd += bin_start
+									if k<2:
 
-							# add the mixer state and the start pointer for the given demod channel
-							global_sequence = np.append(global_sequence, 4128+(chd - 1)*2)
-							global_sequence = np.append(global_sequence, int(bin_cmd,2))
+										mux_b31 = str(mux_config_for_ch[k])
+										mux_b30_b29 = '00'
+										mux_b28 = '1'
 
-							if self.debug_mode:
-								print('ADC pointer/ demod ch/ pointer ADC:')
-								print(ADC_pulses_pointer, chd, pointer_adc)
-								print('adding sequencer the mixer state and the starting_pointer:')
-								print('binary command:', bin_cmd)
-								print(4128+2*(chd - 1), int(bin_cmd,2))
+									else:
 
+										mux_b31 = '0'
+										mux_b30_b29 = bin(mux_config_for_ch[k])[2:].zfill(2)
+										mux_b28 = '1'
 
+									mux_b27_to_b14 = '0'*14
 
-							# --- creation of the bit string storing the loop and stop pointer
+									iqram_addr_start = bin(ADC_pulses_pointer[chd - 1][0][pointer_adc[chd - 1]])[2:].zfill(14)
+									iqram_addr_loop = bin(ADC_pulses_pointer[chd - 1][1][pointer_adc[chd - 1]])[2:].zfill(14)
+									iqram_addr_stop = bin(ADC_pulses_pointer[chd - 1][2][pointer_adc[chd - 1]])[2:].zfill(14)
 
-							# convert the pointer postitions in binary 
-							bin_loop = bin(ADC_pulses_pointer[chd - 1][1][pointer_adc[chd - 1]])[2:]
-							bin_stop = bin(ADC_pulses_pointer[chd - 1][2][pointer_adc[chd - 1]])[2:]
+									param_val_1 = int(mux_b31 + mux_b30_b29 + mux_b28 + mux_b27_to_b14 + iqram_addr_start, 2)
+									param_val_2 = int('0'*2 + iqram_addr_loop + '0'*2 + iqram_addr_stop, 2)
 
+									global_sequence = np.append(global_sequence, param_id_1)
+									global_sequence = np.append(global_sequence, param_val_1)
+									global_sequence = np.append(global_sequence, param_id_2)
+									global_sequence = np.append(global_sequence, param_val_2)
 
-							# fill the unused bits
-							len_bit_loop = len(bin_loop)
-							bin_loop_add = [0] * (14 - len_bit_loop)
-							bin_loop_add = str(bin_loop_add)[1:-1].replace(', ', '')
-							bin_loop = bin_loop_add + bin_loop
+									global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
+									global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
 
-							len_bit_stop = len(bin_stop)
-							bin_stop_add = [0] * (14 - len_bit_stop)
-							bin_stop_add = str(bin_stop_add)[1:-1].replace(', ', '')
-							bin_stop = bin_stop_add + bin_stop
+									if self.debug_mode:
 
-							# add the two bit strings 
-							bin_cmd = '00' + bin_loop + '00' + bin_stop
+										print(global_sequence_info[-1])
+										print('Seq instruction : ',global_sequence[-4],global_sequence[-3])
+										print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+										print()
 
-							# add loop and stop pointer for the given demod channel
-							global_sequence = np.append(global_sequence, 4129+(chd - 1)*2)
-							global_sequence = np.append(global_sequence, int(bin_cmd,2))
-
-							if self.debug_mode:
-								print('adding sequencer the loop and stopping pointer:')
-								print('binary command:', bin_cmd)
-								print(4129+2*(chd - 1), int(bin_cmd,2))
-
-
-							# add the number of points the ADC LUT should take 
-							global_sequence = np.append(global_sequence,4107 + (chd - 1))
-							global_sequence = np.append(global_sequence,int(row['time']*1e-6*self.sampling_rate))
-
-
-							if self.debug_mode:
-								print('adding sequencer command to set acq points')
-								print(4106+(chd - 1),int(row['time']*1e-6*self.sampling_rate))
-
-
-							# change the ADC LUT to ON 
-							ADC_state[7-(chd-1)] = 1
-							self.ADC_ch_active[chd-1] = 1
-
-							if self.debug_mode:
-								print('ADC state is :', ADC_state)
-
-
-							# the pointer index of the given channel is updated or not depending on the situation
-							if not(rep_started):
-								pointer_adc[chd - 1] +=1
-							else: 
-								while pulses_counter_adc[chd - 1] < nb_pulses_adc[chd- 1]:
-									pointer_adc[chd - 1] +=1
-									pulses_counter_adc[chd - 1] +=1 
-
-						self.n_points_total += row['rep_nb']
-
+								# the pointer index of the given channel is updated or not depending on the situation
+								pointer_adc[k] += 1
 
 					elif row['mode'] == 'wait':
-						ch_demod = row['ch_demod']
-						for idx, chd in enumerate(ch_demod):
-							ADC_state[7-(chd-1)] = 0
-							# reset the mixer state of the switched off channel
-							mux_state[chd - 1, :] = np.zeros(4)
 
-							if self.debug_mode:
-								print('ADC state is :', ADC_state)
+						ADC_state[ADC_ch-1] = 0
 
+						if self.debug_mode:
+
+							print('Wait pulse - ADC state is :', ADC_state)
+							print()
 
 			# ---  Update of the ADC and DAC state at every time step 
 
@@ -1470,12 +1420,12 @@ class RFSoC(VisaInstrument):
 					print('ADC state updated from %s to %s'%(ADC_state_prev, ADC_state))
 					print('DAC state updated from %s to %s'%(DAC_state_prev, DAC_state))
 
-
 				# update the ADC state 
-				bin_adc_cmd = str(ADC_state)[1:-1].replace(', ', '')
-				bin_dac_cmd = ''
+				bin_adc_cmd = ''.join(map(str,reversed(ADC_state)))
 
 				# update the DAC state
+				bin_dac_cmd = ''
+
 				for i in reversed(range(8)):
 
 					if DAC_state[i] != DAC_state_prev[i]:
@@ -1495,10 +1445,12 @@ class RFSoC(VisaInstrument):
 						bin_dac_cmd +='000'
 
 				# add the two bit strings and add the command to update states 
-				bin_trig_cmd = bin_adc_cmd + bin_dac_cmd
+				bin_ADC_DAC_state = bin_adc_cmd + bin_dac_cmd
 
 				global_sequence = np.append(global_sequence,4096)
-				global_sequence = np.append(global_sequence,int(bin_trig_cmd,2))
+				global_sequence = np.append(global_sequence,int(bin_ADC_DAC_state,2))
+
+				global_sequence_info.append('Updating ADC DAC state')
 
 				ADC_state_prev = ADC_state.copy()
 
@@ -1527,19 +1479,18 @@ class RFSoC(VisaInstrument):
 		global_sequence = np.append(global_sequence,1)
 		global_sequence = np.append(global_sequence,wait_term)
 
-		if self.debug_mode:
-			print('Terminate by wait of : %f' %(wait_term + 1))
+		global_sequence_info.append('Terminate by wait of : %f' %(wait_term + 1))
 
+		if self.debug_mode:
+
+			print(global_sequence_info[-1])
+			print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
 
 		# Switch off all the DAC/ADC 
 		global_sequence = np.append(global_sequence,4096)
 		global_sequence = np.append(global_sequence,0)
 
-		# Close the loop if it was open
-		if rep_started:
-			global_sequence = np.append(global_sequence, 513)
-			global_sequence = np.append(global_sequence, 0)
-
+		global_sequence_info.append('Reached end - switch off all the DAC/ADC')
 
 		# --- Set the Acquisition mode 
 		if self.acquisition_mode() == 'RAW':
@@ -1549,28 +1500,34 @@ class RFSoC(VisaInstrument):
 		else:
 			log.error('Invalid acquisition mode\n')
 
+		# if global loop is programmed we add it to the sequence 
+		try:
+			global_rep = int(seq_looping['rep'].where(seq_looping['mode'] == 'global'))
+		except:
+			global_rep = 1
 
-		# if n_points()>1 we add a global loop 
-		if self.n_points() > 1:
-			period_sync = int(self.FPGA_clock/self.freq_sync())
-			global_sequence_str = 'SEQ 0,1,9,4106,' + str(acq_mode) + ',258,' + str(int(self.n_points()-1)) + ',' + ','.join((global_sequence.astype(int)).astype(str))  + ',514,0,0,0'
+		if global_rep > 1:
+
+			global_sequence_str = 'SEQ 0,1,9,4106,' + str(acq_mode) + ',258,' + str(int(global_rep-1)) + ',' + ','.join((global_sequence.astype(int)).astype(str))  + ',514,0,0,0'
 
 		else :
+
 			global_sequence_str = 'SEQ 0,1,9,4106,' + str(acq_mode) + ',' + ','.join((global_sequence.astype(int)).astype(str)) + ',0,0'
 
 		if self.debug_mode:
-			print('Sequence programmer command: ',global_sequence_str)
+
+			print('Sequence programmer command: ',global_sequence_str[:50])
 
 		# --- Send the SCPI command 
 		log.info('Writing global sequence' + '\n')
 		self.write(global_sequence_str)
 
-		# Update the total acquisition points 
-		self.n_points_total *=self.n_points()
-
-		# reset the pointer indexes
-		pointer_adc = [0,0,0,0,0,0,0,0]
-		pointer_dac = [0,0,0,0,0,0,0,0]
+		# Update class variables 
+		self.n_points_total = global_rep
+		self.ADC_ch_active = ADC_state
+		self.global_sequence_str  = global_sequence_str
+		self.global_sequence  = global_sequence
+		self.global_sequence_info = global_sequence_info
 
 
 
@@ -1875,12 +1832,11 @@ class RFSoC(VisaInstrument):
 		mode = self.acquisition_mode()
 		n_rep = int(self.n_points_total)
 		length_vec = self.length_vec
-		ch_vec = self.ch_vec
-		# N_adc_events = len(ch_vec) # to be discussed with Arpit
-		N_adc_events = len(np.unique(ch_vec))
+		ch_vec = self.ADC_events
+		N_adc_events = len(ch_vec) # to be discussed with Arpit
+		# N_adc_events = len(np.unique(ch_vec))
 		if self.debug_mode:
 			len_data_all = 0
-		# print(N_adc_events, ch_vec)
 		#print(length_vec)
 		# n_pulses = len(length_vec[0]) # to be discussed with Arpit
 
@@ -1911,11 +1867,8 @@ class RFSoC(VisaInstrument):
 
 				while (count_meas//(16*N_adc_events))<n_rep:
 
-
-
 					if self.loop_time: 
 						a = datetime.datetime.now()
-
 
 					try:
 						r = self.visa_handle.query_binary_values('OUTPUT:DATA?', datatype="h",
@@ -1995,10 +1948,10 @@ class RFSoC(VisaInstrument):
 
 				else:
 
-					log.error('Data curruption: rfSoC did not send all data points({}/'.format(count_meas//(16*N_adc_events))+str(n_rep)+').')
+					log.error('Data corruption: rfSoC did not send all data points({}/'.format(count_meas//(16*N_adc_events))+str(n_rep)+').')
 
 					# reset measurement
-					data_unsorted = []
+					data_unsorted = {}
 					count_meas = 0
 					empty_packet_count = 0
 					self.write("SEQ:STOP")
@@ -2292,7 +2245,7 @@ class RFSoC(VisaInstrument):
 		mode = self.acquisition_mode()
 		n_rep = self.n_points_total
 		length_vec = self.length_vec
-		ch_vec = self.ch_vec
+		ch_vec = self.ADC_events
 		N_adc_events = len(ch_vec)
 		n_pulses = len(length_vec[0])
 		location = self.raw_dump_location
@@ -2520,3 +2473,42 @@ class RFSoC(VisaInstrument):
 		nb_clock_per_us = self.FPGA_clock*1e-6
 		t_conv = np.round(t*nb_clock_per_us)/nb_clock_per_us
 		return t_conv 
+
+
+
+
+
+
+
+
+
+
+
+
+
+	'''
+	
+	Functions to help with debugging
+
+	'''
+
+	def seq_DAC_ADC_int_to_bin(self,cmd_int):
+
+		cmd_bin = bin(cmd_int)[2:].zfill(32)
+
+		print('ADC command ',cmd_bin[0:8])
+		print()
+
+		for i in range(8):
+
+			print('DAC ' + str(i+1) + ' command ',cmd_bin[8+3*i:8+3+3*i])
+
+
+
+	def show_sequence_commands(self):
+
+		for i in range(int(len(self.global_sequence.astype(int))/2)):
+
+			print(self.global_sequence_info[i])
+			print(self.global_sequence.astype(int)[2*i],self.global_sequence.astype(int)[2*i+1])
+			print()
