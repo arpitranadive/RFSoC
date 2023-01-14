@@ -475,7 +475,7 @@ class RFSoC(VisaInstrument):
 		Also only the first iteration of the loop set by a n_rep>1 is shown (in dark color).
 		"""
 
-
+		self.global_loop = (False,0)
 
 		log.info('Started sequence processing'+'  \n')
 
