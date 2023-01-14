@@ -725,6 +725,7 @@ class RFSoC(VisaInstrument):
 			pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module, Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num,start_pointer=start_pointer, LUT=LUT, ch_demod=ch_demod)])], ignore_index=True)
 
 			self.ADC_events = np.append(self.ADC_events,ch_demod)
+			length_vec[int(row['channel'])-1].append(float(length)*1e-6*self.sampling_rate)
 
 			time_ADC[int(row['channel'])-1] = stop
 
@@ -813,7 +814,7 @@ class RFSoC(VisaInstrument):
 
 				print('\n------------- Sequence display table -------------\n')
 
-			fig.update_layout(showlegend=False)
+			fig.update_layout(showlegend=False,width=1600,height=200+80*idx,)
 			fig.show()
 
 
@@ -940,7 +941,7 @@ class RFSoC(VisaInstrument):
 
 				print('\n------------------------------- DAC LUT processing finished ----------------------------------\n')
 
-		if ADC:
+		if ADC and self.acquisition_mode()=='INT':
 
 			LUT_df = pulses_df.loc[(pulses_df['module'] == 'ADC') & (pulses_df['mode'] != 'wait')]
 
@@ -1131,6 +1132,45 @@ class RFSoC(VisaInstrument):
 
 			log.info('Waveform processing complete' + '\n')
 
+		elif ADC and self.acquisition_mode()=='RAW':
+
+			LUT_df = pulses_df.loc[(pulses_df['module'] == 'ADC') & (pulses_df['mode'] != 'wait')]
+
+			ch_on_list = LUT_df['Channel'].tolist()
+
+			for i in ch_on_list:
+
+				if int(i[-1])==1:
+					self.ADC1.status('ON')
+					self.ADC1.fmixer(0)
+				if int(i[-1])==2:
+					self.ADC2.status('ON')
+					self.ADC2.fmixer(0)
+				if int(i[-1])==3:
+					self.ADC3.status('ON')
+					self.ADC3.fmixer(0)
+				if int(i[-1])==4:
+					self.ADC4.status('ON')
+					self.ADC4.fmixer(0)
+				if int(i[-1])==5: 
+					self.ADC5.status('ON')
+					self.ADC7.fmixer(0)
+				if int(i[-1])==6:
+					self.ADC6.status('ON')
+					self.ADC6.fmixer(0)
+				if int(i[-1])==7:
+					self.ADC7.status('ON')
+					self.ADC7.fmixer(0)
+				if int(i[-1])==8:
+					self.ADC8.status('ON')
+					self.ADC8.fmixer(0)
+
+				if self.debug_mode:
+
+					print('Activating ADC channel ' + str(i) + ' for data acquisition.\n')
+
+			ADC_pulses_pointer = None
+
 		return DAC_pulses_pointer, ADC_pulses_pointer
 
 
@@ -1288,11 +1328,6 @@ class RFSoC(VisaInstrument):
 					ADC_ch = int(row['ch_num'])
 					LUT_ADC_map_prev = LUT_ADC_map.copy()
 
-					if self.debug_mode:
-
-						print('ADC 1-4 LUT Map : ')
-						pprint(LUT_ADC_map)
-
 					if row['mode'] != 'wait':
 
 						# change the ADC to ON 
@@ -1316,92 +1351,124 @@ class RFSoC(VisaInstrument):
 							print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
 							print()
 
-						# --- Update the ADC to ADC LUT connection
+						if self.acquisition_mode()=='INT':
 
-						for k in list(map(int,ch_demod)):
+							# --- Update the ADC to ADC LUT connection
 
-							LUT_ADC_map[ADC_ch-1][k-1] = 1
+							if self.debug_mode:
 
-						# --- test validity of ADC map
+								print('ADC 1-4 LUT Map : ')
+								pprint(LUT_ADC_map)
 
-						mux_state = np.sum(LUT_ADC_map, axis=0)
-						mux_state_valid = True
+							for k in list(map(int,ch_demod)):
 
-						for k in range(len(mux_state)):
+								LUT_ADC_map[ADC_ch-1][k-1] = 1
 
-							if mux_state[i]>1:
+							# --- test validity of ADC map
 
-								mux_state_valid = False
-								log.error('mux state validity issue, are you trying to use one mixer for multiple demods?')
+							mux_state = np.sum(LUT_ADC_map, axis=0)
+							mux_state_valid = True
 
-						for k in range(2,4):
+							for k in range(len(mux_state)):
 
-							for l in range(0,2):
-
-								if LUT_ADC_map[k,l] != 0:
+								if mux_state[i]>1:
 
 									mux_state_valid = False
-									log.error('mux state validity issue, invalid channel mixing!')
+									log.error('mux state validity issue, are you trying to use one mixer for multiple demods?')
 
-						if self.debug_mode:
+							for k in range(2,4):
 
-							print('Updated ADC 1-4 LUT Map : ')
-							pprint(LUT_ADC_map)
-							print('mux state validity registered as: ' + str(mux_state_valid))
+								for l in range(0,2):
+
+									if LUT_ADC_map[k,l] != 0:
+
+										mux_state_valid = False
+										log.error('mux state validity issue, invalid channel mixing!')
+
+							if self.debug_mode:
+
+								print('Updated ADC 1-4 LUT Map : ')
+								pprint(LUT_ADC_map)
+								print('mux state validity registered as: ' + str(mux_state_valid))
 
 
-						# --- Sequence filling for ADC type command
-						if mux_state_valid and not(np.array_equal(LUT_ADC_map_prev,LUT_ADC_map)):
+							# --- Sequence filling for ADC type command
+							if mux_state_valid and not(np.array_equal(LUT_ADC_map_prev,LUT_ADC_map)):
 
-							mux_config_for_ch = self._mux_config_matrix[ADC_ch-1]
+								mux_config_for_ch = self._mux_config_matrix[ADC_ch-1]
 
-							for k in range(4):
+								for k in range(4):
 
-								chd = k+1
+									chd = k+1
 
-								if LUT_ADC_map[ADC_ch-1][k] == 1:
+									if LUT_ADC_map[ADC_ch-1][k] == 1:
 
-									param_id_1 = 4128 + 2*k
-									param_id_2 = 4129 + 2*k
+										param_id_1 = 4128 + 2*k
+										param_id_2 = 4129 + 2*k
 
-									if k<2:
+										if k<2:
 
-										mux_b31 = str(mux_config_for_ch[k])
-										mux_b30_b29 = '00'
-										mux_b28 = '1'
+											mux_b31 = str(mux_config_for_ch[k])
+											mux_b30_b29 = '00'
+											mux_b28 = '1'
 
-									else:
+										else:
 
-										mux_b31 = '0'
-										mux_b30_b29 = bin(int(mux_config_for_ch[k]))[2:].zfill(2)
-										mux_b28 = '1'
+											mux_b31 = '0'
+											mux_b30_b29 = bin(int(mux_config_for_ch[k]))[2:].zfill(2)
+											mux_b28 = '1'
 
-									mux_b27_to_b14 = '0'*14
+										mux_b27_to_b14 = '0'*14
 
-									iqram_addr_start = bin(ADC_pulses_pointer[chd - 1][0][pointer_adc[chd - 1]])[2:].zfill(14)
-									iqram_addr_loop = bin(ADC_pulses_pointer[chd - 1][1][pointer_adc[chd - 1]])[2:].zfill(14)
-									iqram_addr_stop = bin(ADC_pulses_pointer[chd - 1][2][pointer_adc[chd - 1]])[2:].zfill(14)
+										iqram_addr_start = bin(ADC_pulses_pointer[chd - 1][0][pointer_adc[chd - 1]])[2:].zfill(14)
+										iqram_addr_loop = bin(ADC_pulses_pointer[chd - 1][1][pointer_adc[chd - 1]])[2:].zfill(14)
+										iqram_addr_stop = bin(ADC_pulses_pointer[chd - 1][2][pointer_adc[chd - 1]])[2:].zfill(14)
 
-									param_val_1 = int(mux_b31 + mux_b30_b29 + mux_b28 + mux_b27_to_b14 + iqram_addr_start, 2)
-									param_val_2 = int('0'*2 + iqram_addr_loop + '0'*2 + iqram_addr_stop, 2)
+										param_val_1 = int(mux_b31 + mux_b30_b29 + mux_b28 + mux_b27_to_b14 + iqram_addr_start, 2)
+										param_val_2 = int('0'*2 + iqram_addr_loop + '0'*2 + iqram_addr_stop, 2)
 
-									global_sequence = np.append(global_sequence, param_id_1)
-									global_sequence = np.append(global_sequence, param_val_1)
-									global_sequence = np.append(global_sequence, param_id_2)
-									global_sequence = np.append(global_sequence, param_val_2)
+										global_sequence = np.append(global_sequence, param_id_1)
+										global_sequence = np.append(global_sequence, param_val_1)
+										global_sequence = np.append(global_sequence, param_id_2)
+										global_sequence = np.append(global_sequence, param_val_2)
 
-									global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
-									global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
+										global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
+										global_sequence_info.append('Adding sequencer command to configure mux for ADC ch ' + str(ADC_ch) + ' and demod_ch ' + str(k))
 
-									if self.debug_mode:
+										if self.debug_mode:
 
-										print(global_sequence_info[-1])
-										print('Seq instruction : ',global_sequence[-4],global_sequence[-3])
-										print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
-										print()
+											print(global_sequence_info[-1])
+											print('Seq instruction : ',global_sequence[-4],global_sequence[-3])
+											print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+											print()
 
-									# the pointer index of the given channel is updated or not depending on the situation
-									pointer_adc[k] += 1
+										# the pointer index of the given channel is updated or not depending on the situation
+										pointer_adc[k] += 1
+
+						elif self.acquisition_mode()=='RAW':
+
+							param_id_1 = 4128 + 2*(ADC_ch-1)
+
+							mux_b31 = '0'
+							mux_b30_b29 = '00'
+							mux_b28 = '0'
+
+							mux_b27_to_b14 = '0'*14
+							mux_b13_to_b0 = '0'*14
+
+							param_val_1 = int(mux_b31 + mux_b30_b29 + mux_b28 + mux_b27_to_b14 + mux_b13_to_b0, 2)
+
+							global_sequence = np.append(global_sequence, param_id_1)
+							global_sequence = np.append(global_sequence, param_val_1)
+
+							global_sequence_info.append('Adding sequencer command to turn off mux for ADC ch ' + str(ADC_ch))
+
+							if self.debug_mode:
+
+								print(global_sequence_info[-1])
+								print('Seq instruction : ',global_sequence[-4],global_sequence[-3])
+								print('Seq instruction : ',global_sequence[-2],global_sequence[-1])
+								print()
 
 					elif row['mode'] == 'wait':
 
@@ -2044,15 +2111,14 @@ class RFSoC(VisaInstrument):
 
 		elif mode == 'RAW':
 
-
 			self.reset_output_data()
 
 			#for now we consider only the one same type of acq on all adc
 			mode=self.acquisition_mode.get()
 
 			for index in range(8):
-				length_vec[index] = np.unique(length_vec[index])
 
+				length_vec[index] = np.unique(length_vec[index])
 
 			getting_valid_dataset = True
 
