@@ -710,7 +710,7 @@ class RFSoC(VisaInstrument):
 				param = row['param']
 				ch_num = row['channel']
 				
-				pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num), ignore_index=True)
+				pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num)])], ignore_index=True)
 
 			start = row['start']
 			length = row['length']
