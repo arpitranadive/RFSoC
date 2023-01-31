@@ -341,6 +341,7 @@ class RFSoC(VisaInstrument):
 		self.display_sequence = True
 		self.display_IQ_progress = True
 		self.debug_mode = False
+		self.debug_bypass_count_check = False
 		self.debug_mode_plot_waveforms = False
 		self.debug_mode_waveform_string = False
 		self.loop_time = False
@@ -609,7 +610,7 @@ class RFSoC(VisaInstrument):
 				mode = row['mode']
 				color = color = '#{0:06X}'.format(loop_color)
 
-				loops_df = loops_df.append(dict(label=label, start=start, stop=stop, time=time, mode=mode, Channel=channel, color=str(color)), ignore_index=True)
+				loops_df = pd.concat([loops_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, mode=mode, Channel=channel, color=str(color))])], ignore_index=True)
 
 				if self.debug_mode:
 
@@ -647,7 +648,7 @@ class RFSoC(VisaInstrument):
 				param = row['param']
 				ch_num = row['channel']
 				
-				pulses_df = pulses_df.append(dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num), ignore_index=True)
+				pulses_df = pd.concat([pulses_df, pd.DataFrame.from_records([dict(label=label, start=start, stop=stop, time=time, module=module , Channel=Channel, mode=mode, color=str(color), param=param, ch_num=ch_num)])], ignore_index=True)
 
 			start = row['start']
 			length = row['length']
@@ -1379,7 +1380,7 @@ class RFSoC(VisaInstrument):
 
 							for k in range(len(mux_state)):
 
-								if mux_state[i]>1:
+								if mux_state[k]>1:
 
 									mux_state_valid = False
 									log.error('mux state validity issue, are you trying to use one mixer for multiple demods?')
@@ -1416,8 +1417,9 @@ class RFSoC(VisaInstrument):
 
 										if k<2:
 
-											mux_b31 = str(mux_config_for_ch[k])
-											mux_b30_b29 = '00'
+											mux_b31 = '0'
+											mux_b30 = '0'
+											mux_b30_b29 = mux_b30 + str(mux_config_for_ch[k])
 											mux_b28 = '1'
 
 										else:
@@ -1434,7 +1436,7 @@ class RFSoC(VisaInstrument):
 
 										param_val_1 = int(mux_b31 + mux_b30_b29 + mux_b28 + mux_b27_to_b14 + iqram_addr_start, 2)
 										param_val_2 = int('0'*2 + iqram_addr_loop + '0'*2 + iqram_addr_stop, 2)
-
+										
 										global_sequence = np.append(global_sequence, param_id_1)
 										global_sequence = np.append(global_sequence, param_val_1)
 										global_sequence = np.append(global_sequence, param_id_2)
@@ -2019,9 +2021,17 @@ class RFSoC(VisaInstrument):
 
 					getting_valid_dataset = False
 
+				elif self.debug_bypass_count_check:
+
+					print('Count bypass triggered : ',count_meas,N_adc_events,n_rep)
+					getting_valid_dataset = False
+
 				else:
 
 					log.error('Data corruption: rfSoC did not send all data points({}/'.format(count_meas//(16*N_adc_events))+str(n_rep)+').')
+
+					print(count_meas)
+					print(N_adc_events)
 
 					# reset measurement
 					data_unsorted = {}
@@ -2062,7 +2072,7 @@ class RFSoC(VisaInstrument):
 			ch_num = (raw_IQ_data_dump_header%256).T[0]
 
 			# extract number of accumulated points for normalization from 3rd to 6th byte of header
-			num_points = np.frombuffer(np.stack((raw_IQ_data_dump_header.T[1], raw_IQ_data_dump_header.T[2]), axis=1).astype('int16').tobytes(), dtype=np.long)
+			num_points = np.frombuffer(np.stack((raw_IQ_data_dump_header.T[1], raw_IQ_data_dump_header.T[2]), axis=1).astype('int16').tobytes(), dtype=np.int_)
 
 			# vectors indicating channel that the data originated from
 			ch_1 = ch_num*(ch_num == np.ones(len(ch_num)))
