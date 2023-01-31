@@ -1341,16 +1341,18 @@ class RFSoC(VisaInstrument):
 
 						# change the ADC to ON 
 
-						ADC_state[ADC_ch-1] = 1
+						for ch_demod_i in ch_demod:
+							
+							ADC_state[ch_demod_i-1] = 1
 
-						if self.debug_mode:
+							if self.debug_mode:
 
-							print('ADC state is :', ADC_state)
-							print()
+								print('ADC state is :', ADC_state)
+								print()
 
-						# add the number of points the ADC LUT should take 
-						global_sequence = np.append(global_sequence,4106 + ADC_ch)
-						global_sequence = np.append(global_sequence,int(row['time']*1e-6*self.sampling_rate))
+							# add the number of points the ADC LUT should take 
+							global_sequence = np.append(global_sequence,4106 + ch_demod_i)
+							global_sequence = np.append(global_sequence,int(row['time']*1e-6*self.sampling_rate))
 
 						global_sequence_info.append('Adding sequencer command to set number of acquisition points to ' + str(int(row['time']*1e-6*self.sampling_rate)))
 
