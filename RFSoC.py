@@ -1830,11 +1830,11 @@ class RFSoC(VisaInstrument):
 			log.error('Wrong waveform mode: ',mode)
 
 
-		if len(wavepoints) > 128000: 
+		if len(wavepoints) > int(128000*11/8): 
 			if module == 'DAC':
-				log.error('Error when filling the DAC memory : to many points, maximal number is 128000 while you are asking for %i'%len(wavepoints))
+				log.error('Error when filling the DAC memory : to many points, maximal number is ' + str(int(128000*11/8)) + ' while you are asking for %i'%len(wavepoints))
 			if module == 'ADC':
-				log.error('Error when filling the ADC memory : to many points, maximal number is 128000 while you are asking for %i'%len(wavepoints))
+				log.error('Error when filling the ADC memory : to many points, maximal number is ' + str(int(128000*11/8)) + ' while you are asking for %i'%len(wavepoints))
 
 		return wavepoints
 
@@ -2031,9 +2031,6 @@ class RFSoC(VisaInstrument):
 				else:
 
 					log.error('Data corruption: rfSoC did not send all data points({}/'.format(count_meas//(16*N_adc_events))+str(n_rep)+').')
-
-					print(count_meas)
-					print(N_adc_events)
 
 					# reset measurement
 					data_unsorted = {}
