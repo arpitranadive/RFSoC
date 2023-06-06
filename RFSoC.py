@@ -823,7 +823,7 @@ class RFSoC(VisaInstrument):
 
 				print('\n------------- Sequence display table -------------\n')
 
-			fig.update_layout(showlegend=False,width=1600,height=200+80*idx,)
+			fig.update_layout(showlegend=False,width=1400,height=200+80*idx,)
 			fig.show()
 
 
